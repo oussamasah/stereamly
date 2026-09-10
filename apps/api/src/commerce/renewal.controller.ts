@@ -1,0 +1,2 @@
+import{Controller,Param,Post,Req,UseGuards}from'@nestjs/common';import{AuthGuard,AuthenticatedRequest}from'../auth/auth.guard';import{CommerceService}from'./commerce.service';
+@UseGuards(AuthGuard)@Controller('commerce/subscriptions')export class RenewalController{constructor(private readonly commerce:CommerceService){}@Post(':id/renew')renew(@Req()r:AuthenticatedRequest,@Param('id')id:string){return this.commerce.renew(r.user.id,id);}}

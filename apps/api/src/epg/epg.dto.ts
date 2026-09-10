@@ -1,0 +1,1 @@
+import{IsString,IsUrl,Length}from'class-validator';export class ImportEpgDto{@IsUrl({protocols:['http','https'],require_protocol:true})url!:string;}export class MapChannelDto{@IsString()channelId!:string;}export class ReminderDto{@IsString()programId!:string;}export class GuideQueryDto{@IsString()@Length(1,100)timezone!:string;}

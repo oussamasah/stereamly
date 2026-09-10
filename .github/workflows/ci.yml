@@ -1,0 +1,43 @@
+name: CI
+on:
+  push:
+  pull_request:
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: stream_platform_test
+          POSTGRES_USER: stream
+          POSTGRES_PASSWORD: stream_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U stream -d stream_platform_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://stream:stream_test@localhost:5432/stream_platform_test?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: test-secret-that-is-at-least-32-characters
+      TOKEN_PEPPER: different-test-pepper-at-least-32-chars
+      WEB_ORIGIN: http://localhost:3000
+      NEXT_PUBLIC_API_URL: http://localhost:4000/api/v1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run db:generate
+      - run: npm run db:migrate -- --name ci
+      - run: npm run check
+

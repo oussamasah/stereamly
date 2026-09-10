@@ -1,0 +1,2 @@
+import{describe,expect,it}from'vitest';import{periodMonths,priceTotals}from'../src/commerce/commerce-pricing';
+describe('commerce pricing',()=>{it('freezes French VAT in minor units',()=>expect(priceTotals(999,'FR')).toEqual({subtotalMinor:999,taxMinor:200,totalMinor:1199,taxRate:20}));it('does not invent tax outside configured territory',()=>expect(priceTotals(999,'MA').totalMinor).toBe(999));it('maps every commercial duration',()=>expect(periodMonths).toEqual({MONTH_1:1,MONTH_3:3,MONTH_6:6,MONTH_12:12}));});

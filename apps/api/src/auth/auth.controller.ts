@@ -1,0 +1,20 @@
+import { Body, Controller, Get, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Request, Response } from 'express';
+import { AuthService } from './auth.service';
+import { ForgotPasswordDto, LoginDto, RegisterDto, ResetPasswordDto, TokenDto } from './dto';
+import { AuthGuard, AuthenticatedRequest } from './auth.guard';
+const COOKIE = 'stream_refresh';
+@Controller('auth')
+export class AuthController {
+  constructor(private readonly auth: AuthService) {}
+  @Post('register') register(@Body() dto: RegisterDto) { return this.auth.register(dto); }
+  @Post('verify-email') verify(@Body() dto: TokenDto) { return this.auth.verifyEmail(dto.token); }
+  @Post('login') async login(@Body() dto: LoginDto, @Res({ passthrough: true }) response: Response) { const session = await this.auth.login(dto); this.setCookie(response, session.refreshToken); return { ...session, refreshToken: undefined }; }
+  @Post('refresh') async refresh(@Req() request: Request, @Res({ passthrough: true }) response: Response) { const session = await this.auth.refresh(request.cookies?.[COOKIE] ?? ''); this.setCookie(response, session.refreshToken); return { ...session, refreshToken: undefined }; }
+  @Post('logout') async logout(@Req() request: Request, @Res({ passthrough: true }) response: Response) { const result = await this.auth.logout(request.cookies?.[COOKIE]); response.clearCookie(COOKIE, { path: '/api/v1/auth' }); return result; }
+  @UseGuards(AuthGuard) @Post('logout-all') logoutAll(@Req() request: AuthenticatedRequest) { return this.auth.logoutAll(request.user.id); }
+  @UseGuards(AuthGuard) @Get('me') profile(@Req() request: AuthenticatedRequest) { return this.auth.profile(request.user.id); }
+  @Post('forgot-password') forgot(@Body() dto: ForgotPasswordDto) { return this.auth.forgotPassword(dto.email); }
+  @Post('reset-password') reset(@Body() dto: ResetPasswordDto) { return this.auth.resetPassword(dto); }
+  private setCookie(response: Response, token: string) { response.cookie(COOKIE, token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/api/v1/auth', maxAge: 30 * 86_400_000 }); }
+}

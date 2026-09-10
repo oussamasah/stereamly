@@ -1,0 +1,3 @@
+channel_code,channel_name,provider,contract_reference,evidence_location,territory_country_code,language,web_browser_allowed,mobile_web_allowed,smart_tv_browser_allowed,native_app_allowed,simultaneous_streaming_allowed,start_date,end_date,auto_renewal,drm_required,geo_blocking_required,responsible_owner,legal_review_status,publication_status,notes
+DEMO_001,Canal de démonstration,Contenu synthétique interne,INTERNAL-DEMO-001,docs/sprint-0/validation-sprint.md,ALL,multi,true,true,true,false,true,2026-09-07,2099-12-31,false,false,false,Product Owner,approved,draft,Contenu synthétique ou test détenu par le projet; aucune chaîne tierce
+

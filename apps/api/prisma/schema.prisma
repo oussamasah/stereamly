@@ -1,0 +1,1074 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+}
+
+enum UserRole {
+  CUSTOMER
+  SUPPORT
+  FINANCE
+  CONTENT_MANAGER
+  TECHNICAL_ADMIN
+  SUPER_ADMIN
+}
+
+enum PublicationStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+  ARCHIVED
+}
+
+enum BillingPeriod {
+  MONTH_1
+  MONTH_3
+  MONTH_6
+  MONTH_12
+}
+
+enum MediaType {
+  MOVIE
+  SERIES
+}
+
+enum MediaImageType {
+  POSTER
+  BACKDROP
+  LOGO
+  THUMBNAIL
+}
+
+enum CreditType {
+  ACTOR
+  DIRECTOR
+  WRITER
+  PRODUCER
+}
+
+enum PlaybackProtocol {
+  HLS
+  DASH
+  MPEG_TS
+  FILE
+  REMOTE_REFERENCE
+}
+
+enum SourceType {
+  M3U
+  XTREAM
+  PORTAL_MAC
+  DIRECT
+}
+
+enum SourceStatus {
+  DRAFT
+  TESTING
+  READY
+  SYNCING
+  DEGRADED
+  AUTH_FAILED
+  EXPIRED
+  OFFLINE
+  DISABLED
+}
+
+enum SourceTestOutcome {
+  SUCCESS
+  AUTH_FAILED
+  EXPIRED
+  UNREACHABLE
+  INVALID_FORMAT
+  BLOCKED
+  UNSUPPORTED
+}
+
+enum ImportStatus {
+  QUEUED
+  CONNECTING
+  DOWNLOADING
+  PARSING
+  STAGING
+  PREVIEW
+  APPLYING
+  COMPLETED
+  PARTIAL
+  FAILED
+  CANCELLED
+}
+
+enum ImportedItemKind {
+  LIVE
+  MOVIE
+  SERIES
+  EPISODE
+  GROUP
+  EPG
+}
+
+enum ImportChangeType {
+  ADD
+  UPDATE
+  UNCHANGED
+  REMOVE
+  CONFLICT
+  EXCLUDED
+}
+
+enum CollectionType {
+  MANUAL
+  DYNAMIC
+}
+
+enum HomeRailType {
+  HERO
+  COLLECTION
+  LIVE
+  MOVIES
+  SERIES
+  TOP_10
+}
+
+enum PlaybackSessionStatus {
+  ACTIVE
+  ENDED
+  EXPIRED
+  FAILED
+}
+enum VariantHealthStatus {
+  HEALTHY
+  DEGRADED
+  UNHEALTHY
+  UNKNOWN
+}
+
+enum OrderStatus {
+  PENDING
+  PAYMENT_PENDING
+  PAID
+  FAILED
+  CANCELLED
+  REFUNDED
+  DISPUTED
+}
+enum SubscriptionStatus {
+  PENDING
+  ACTIVE
+  PAST_DUE
+  SUSPENDED
+  EXPIRED
+  CANCELLED
+}
+enum PaymentEventType {
+  SUCCEEDED
+  FAILED
+  DELAYED
+  REFUNDED
+  DISPUTED
+}
+enum EntitlementScope {
+  LIVE
+  VOD
+  SERIES
+}
+
+model User {
+  id                 String      @id @default(cuid())
+  email              String      @unique
+  passwordHash       String
+  displayName        String
+  locale             String      @default("fr")
+  countryCode        String?
+  status             UserStatus  @default(PENDING)
+  role               UserRole    @default(CUSTOMER)
+  emailVerifiedAt    DateTime?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  refreshTokens      RefreshToken[]
+  verificationTokens VerificationToken[]
+  resetTokens        PasswordResetToken[]
+  sourceAccounts     SourceAccount[]
+  sourceAuditEvents  SourceAuditEvent[]
+  contentAuditEvents ContentAuditEvent[]
+  favorites          Favorite[]
+  watchProgress      WatchProgress[]
+  searchHistory      SearchHistory[]
+  playbackSessions   PlaybackSession[]
+  carts              Cart[]
+  orders             Order[]
+  subscriptions      Subscription[]
+  devices            CustomerDevice[]
+  programReminders   ProgramReminder[]
+}
+
+model SourceAccount {
+  id                   String             @id @default(cuid())
+  name                 String
+  type                 SourceType
+  status               SourceStatus       @default(DRAFT)
+  baseUrl              String
+  regionCode           String?
+  priority             Int                @default(100)
+  enabled              Boolean            @default(false)
+  syncLive             Boolean            @default(true)
+  syncMovies           Boolean            @default(true)
+  syncSeries           Boolean            @default(true)
+  syncEpg              Boolean            @default(false)
+  userAgent            String?
+  epgUrl               String?
+  refreshIntervalMin   Int                @default(360)
+  maxConcurrentStreams Int?
+  preferHls            Boolean            @default(true)
+  allowedHosts         String[]
+  ownerId              String
+  lastTestedAt         DateTime?
+  lastSuccessAt        DateTime?
+  lastErrorCode        String?
+  lastLatencyMs        Int?
+  accountExpiresAt     DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  owner                User               @relation(fields: [ownerId], references: [id])
+  secret               SourceSecret?
+  testRuns             SourceTestRun[]
+  auditEvents          SourceAuditEvent[]
+  importJobs           ImportJob[]
+  catalogItems         SourceCatalogItem[]
+  importRules          SourceImportRule[]
+  epgMappings          EpgChannelMapping[]
+  epgImports           EpgImportRun[]
+  @@index([type, status, enabled])
+  @@index([ownerId, updatedAt])
+}
+
+model ImportJob {
+  id            String             @id @default(cuid())
+  sourceId      String
+  status        ImportStatus       @default(QUEUED)
+  progress      Int                @default(0)
+  scope         ImportedItemKind[]
+  totalItems    Int                @default(0)
+  addedItems    Int                @default(0)
+  updatedItems  Int                @default(0)
+  unchangedItems Int               @default(0)
+  removedItems  Int                @default(0)
+  excludedItems Int                @default(0)
+  conflictItems Int                @default(0)
+  errorCode     String?
+  errorDetail   String?
+  cancelRequested Boolean          @default(false)
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  createdAt     DateTime           @default(now())
+  source        SourceAccount      @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  stagedItems   ImportStagedItem[]
+  @@index([sourceId, createdAt])
+  @@index([status, createdAt])
+}
+
+model ImportStagedItem {
+  id          String           @id @default(cuid())
+  jobId       String
+  kind        ImportedItemKind
+  remoteId    String
+  fingerprint String
+  groupName   String?
+  displayName String
+  normalized  Json
+  raw         Json?
+  changeType  ImportChangeType
+  selected    Boolean          @default(true)
+  reason      String?
+  streamCiphertext String?
+  streamIv         String?
+  streamAuthTag    String?
+  createdAt   DateTime         @default(now())
+  job         ImportJob        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  @@unique([jobId, kind, remoteId])
+  @@index([jobId, changeType, selected])
+}
+
+model SourceCatalogItem {
+  id             String           @id @default(cuid())
+  sourceId       String
+  kind           ImportedItemKind
+  remoteId       String
+  fingerprint    String
+  groupName      String?
+  displayName    String
+  normalized     Json
+  active         Boolean          @default(true)
+  lastSeenAt     DateTime
+  channelId      String?
+  mediaTitleId   String?
+  episodeId      String?
+  streamCiphertext String?
+  streamIv         String?
+  streamAuthTag    String?
+  source         SourceAccount    @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  channel        Channel?         @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  mediaTitle     MediaTitle?      @relation(fields: [mediaTitleId], references: [id], onDelete: SetNull)
+  episode        Episode?         @relation(fields: [episodeId], references: [id], onDelete: SetNull)
+  @@unique([sourceId, kind, remoteId])
+  @@index([sourceId, kind, active])
+  @@index([fingerprint])
+}
+
+model SourceImportRule {
+  id          String        @id @default(cuid())
+  sourceId    String
+  field       String
+  pattern     String
+  exclude     Boolean       @default(true)
+  targetGenreId String?
+  createdAt   DateTime      @default(now())
+  source      SourceAccount @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  targetGenre Genre?        @relation(fields: [targetGenreId], references: [id], onDelete: SetNull)
+  @@index([sourceId])
+}
+
+model SourceSecret {
+  sourceId    String        @id
+  ciphertext String
+  iv         String
+  authTag    String
+  keyVersion Int           @default(1)
+  updatedAt  DateTime      @updatedAt
+  source     SourceAccount @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+}
+
+model SourceTestRun {
+  id           String            @id @default(cuid())
+  sourceId     String
+  outcome      SourceTestOutcome
+  latencyMs    Int?
+  capabilities Json?
+  errorCode    String?
+  detail       String?
+  createdAt    DateTime          @default(now())
+  source       SourceAccount     @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  @@index([sourceId, createdAt])
+}
+
+model SourceAuditEvent {
+  id         String        @id @default(cuid())
+  sourceId   String
+  actorId    String
+  action     String
+  changes    Json?
+  createdAt  DateTime      @default(now())
+  source     SourceAccount @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  actor      User          @relation(fields: [actorId], references: [id])
+  @@index([sourceId, createdAt])
+  @@index([actorId, createdAt])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, expiresAt])
+}
+
+model VerificationToken {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, expiresAt])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, expiresAt])
+}
+
+model Category {
+  id        String    @id @default(cuid())
+  slug      String    @unique
+  names     Json
+  sortOrder Int       @default(0)
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  channels  Channel[]
+}
+
+model Channel {
+  id               String             @id @default(cuid())
+  slug             String             @unique
+  names            Json
+  searchText       String
+  description      Json?
+  logoUrl          String?
+  languageCode     String
+  countryCode      String
+  sortOrder        Int                @default(0)
+  status           PublicationStatus  @default(DRAFT)
+  webAvailable     Boolean            @default(false)
+  featured         Boolean            @default(false)
+  publishedAt      DateTime?
+  scheduledFor     DateTime?
+  archivedAt       DateTime?
+  categoryId       String
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  category         Category            @relation(fields: [categoryId], references: [id])
+  rights           ChannelRight[]
+  prices           ChannelPrice[]
+  packages         PackageChannel[]
+  playbackVariants PlaybackVariant[]
+  sourceCatalogItems SourceCatalogItem[]
+  collectionItems    CollectionItem[]
+  homeRailItems      HomeRailItem[]
+  favorites          Favorite[]
+  watchProgress      WatchProgress[]
+  epgMappings        EpgChannelMapping[]
+  epgPrograms        EpgProgram[]
+  availability       ChannelAvailability[]
+  @@index([status, sortOrder])
+  @@index([countryCode, languageCode])
+}
+
+model MediaTitle {
+  id                 String             @id @default(cuid())
+  slug               String             @unique
+  type               MediaType
+  names              Json
+  alternativeNames   Json?
+  searchText         String
+  synopsis           Json?
+  originalLanguage   String?
+  countryCodes       String[]
+  releaseYear        Int?
+  ageRating          String?
+  rating             Decimal?           @db.Decimal(3, 1)
+  trailerUrl         String?
+  status             PublicationStatus  @default(DRAFT)
+  featured           Boolean            @default(false)
+  publishedAt        DateTime?
+  scheduledFor       DateTime?
+  archivedAt         DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  movie              Movie?
+  series             Series?
+  genres             MediaTitleGenre[]
+  credits            Credit[]
+  images             MediaImage[]
+  externalIds        ExternalId[]
+  playbackVariants   PlaybackVariant[]
+  sourceCatalogItems SourceCatalogItem[]
+  collectionItems    CollectionItem[]
+  homeRailItems      HomeRailItem[]
+  favorites          Favorite[]
+  watchProgress      WatchProgress[]
+  popularity         PopularityDaily[]
+  @@index([type, status, releaseYear])
+  @@index([featured, publishedAt])
+}
+
+model Movie {
+  mediaTitleId String     @id
+  durationSec  Int
+  mediaTitle   MediaTitle @relation(fields: [mediaTitleId], references: [id], onDelete: Cascade)
+}
+
+model Series {
+  mediaTitleId String     @id
+  seriesStatus String?
+  mediaTitle   MediaTitle @relation(fields: [mediaTitleId], references: [id], onDelete: Cascade)
+  seasons      Season[]
+}
+
+model Season {
+  id           String    @id @default(cuid())
+  seriesId     String
+  seasonNumber Int
+  names        Json?
+  synopsis     Json?
+  releaseYear Int?
+  sortOrder    Int       @default(0)
+  series       Series    @relation(fields: [seriesId], references: [mediaTitleId], onDelete: Cascade)
+  episodes     Episode[]
+  @@unique([seriesId, seasonNumber])
+  @@index([seriesId, sortOrder])
+}
+
+model Episode {
+  id                 String            @id @default(cuid())
+  seasonId           String
+  episodeNumber      Int
+  names              Json
+  synopsis           Json?
+  durationSec        Int?
+  airedAt            DateTime?
+  sortOrder          Int               @default(0)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  season             Season            @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  images             MediaImage[]
+  externalIds        ExternalId[]
+  playbackVariants   PlaybackVariant[]
+  sourceCatalogItems SourceCatalogItem[]
+  watchProgress      WatchProgress[]
+  @@unique([seasonId, episodeNumber])
+  @@index([seasonId, sortOrder])
+}
+
+model Genre {
+  id        String            @id @default(cuid())
+  slug      String            @unique
+  names     Json
+  sortOrder Int               @default(0)
+  active    Boolean           @default(true)
+  titles    MediaTitleGenre[]
+  importRules SourceImportRule[]
+}
+
+model EditorialCollection {
+  id String @id @default(cuid())
+  slug String @unique
+  names Json
+  description Json?
+  type CollectionType @default(MANUAL)
+  rules Json?
+  status PublicationStatus @default(DRAFT)
+  sortOrder Int @default(0)
+  publishedAt DateTime?
+  scheduledFor DateTime?
+  archivedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  items CollectionItem[]
+  rails HomeRail[]
+  @@index([status, sortOrder])
+}
+
+model CollectionItem {
+  id String @id @default(cuid())
+  collectionId String
+  mediaTitleId String?
+  channelId String?
+  sortOrder Int @default(0)
+  collection EditorialCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  mediaTitle MediaTitle? @relation(fields: [mediaTitleId], references: [id], onDelete: Cascade)
+  channel Channel? @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  @@unique([collectionId, mediaTitleId])
+  @@unique([collectionId, channelId])
+  @@index([collectionId, sortOrder])
+}
+
+model HomeLayout {
+  id String @id @default(cuid())
+  locale String
+  countryCode String
+  status PublicationStatus @default(DRAFT)
+  scheduledFor DateTime?
+  publishedAt DateTime?
+  archivedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  rails HomeRail[]
+  @@unique([locale, countryCode])
+  @@index([status, countryCode, locale])
+}
+
+model HomeRail {
+  id String @id @default(cuid())
+  layoutId String
+  type HomeRailType
+  names Json
+  collectionId String?
+  sortOrder Int @default(0)
+  enabled Boolean @default(true)
+  rules Json?
+  layout HomeLayout @relation(fields: [layoutId], references: [id], onDelete: Cascade)
+  collection EditorialCollection? @relation(fields: [collectionId], references: [id], onDelete: SetNull)
+  items HomeRailItem[]
+  @@index([layoutId, sortOrder])
+}
+
+model HomeRailItem {
+  id String @id @default(cuid())
+  railId String
+  mediaTitleId String?
+  channelId String?
+  sortOrder Int @default(0)
+  rail HomeRail @relation(fields: [railId], references: [id], onDelete: Cascade)
+  mediaTitle MediaTitle? @relation(fields: [mediaTitleId], references: [id], onDelete: Cascade)
+  channel Channel? @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  @@unique([railId, mediaTitleId])
+  @@unique([railId, channelId])
+  @@index([railId, sortOrder])
+}
+
+model ContentAuditEvent {
+  id String @id @default(cuid())
+  actorId String
+  entityType String
+  entityId String
+  action String
+  before Json?
+  after Json?
+  createdAt DateTime @default(now())
+  actor User @relation(fields: [actorId], references: [id])
+  @@index([entityType, entityId, createdAt])
+  @@index([actorId, createdAt])
+}
+
+model Favorite {
+  id String @id @default(cuid())
+  userId String
+  mediaTitleId String?
+  channelId String?
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mediaTitle MediaTitle? @relation(fields: [mediaTitleId], references: [id], onDelete: Cascade)
+  channel Channel? @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  @@unique([userId, mediaTitleId])
+  @@unique([userId, channelId])
+  @@index([userId, createdAt])
+}
+
+model WatchProgress {
+  id String @id @default(cuid())
+  userId String
+  mediaTitleId String?
+  episodeId String?
+  channelId String?
+  positionSec Int @default(0)
+  durationSec Int?
+  completed Boolean @default(false)
+  lastDeviceId String?
+  lastWatchedAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mediaTitle MediaTitle? @relation(fields: [mediaTitleId], references: [id], onDelete: Cascade)
+  episode Episode? @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  channel Channel? @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  @@unique([userId, mediaTitleId])
+  @@unique([userId, episodeId])
+  @@unique([userId, channelId])
+  @@index([userId, lastWatchedAt])
+}
+
+model SearchHistory {
+  id String @id @default(cuid())
+  userId String
+  query String
+  normalizedQuery String
+  searchedAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([userId, normalizedQuery])
+  @@index([userId, searchedAt])
+}
+
+model PopularityDaily {
+  id String @id @default(cuid())
+  mediaTitleId String
+  day DateTime @db.Date
+  starts Int @default(0)
+  completions Int @default(0)
+  uniqueViewers Int @default(0)
+  score Float @default(0)
+  mediaTitle MediaTitle @relation(fields: [mediaTitleId], references: [id], onDelete: Cascade)
+  @@unique([mediaTitleId, day])
+  @@index([day, score])
+}
+
+model MediaTitleGenre {
+  mediaTitleId String
+  genreId      String
+  mediaTitle   MediaTitle @relation(fields: [mediaTitleId], references: [id], onDelete: Cascade)
+  genre        Genre      @relation(fields: [genreId], references: [id])
+  @@id([mediaTitleId, genreId])
+}
+
+model Person {
+  id          String   @id @default(cuid())
+  displayName String
+  sortName    String
+  biography   Json?
+  photoUrl    String?
+  credits     Credit[]
+  @@index([sortName])
+}
+
+model Credit {
+  id           String     @id @default(cuid())
+  mediaTitleId String
+  personId     String
+  type         CreditType
+  character    String?
+  sortOrder    Int        @default(0)
+  mediaTitle   MediaTitle @relation(fields: [mediaTitleId], references: [id], onDelete: Cascade)
+  person       Person     @relation(fields: [personId], references: [id])
+  @@unique([mediaTitleId, personId, type, character])
+  @@index([mediaTitleId, type, sortOrder])
+}
+
+model MediaImage {
+  id           String         @id @default(cuid())
+  mediaTitleId String?
+  episodeId    String?
+  type         MediaImageType
+  url          String
+  languageCode String?
+  width        Int?
+  height       Int?
+  sortOrder    Int            @default(0)
+  mediaTitle   MediaTitle?    @relation(fields: [mediaTitleId], references: [id], onDelete: Cascade)
+  episode      Episode?       @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  @@index([mediaTitleId, type, sortOrder])
+  @@index([episodeId, type, sortOrder])
+}
+
+model ExternalId {
+  id           String      @id @default(cuid())
+  provider     String
+  externalId   String
+  mediaTitleId String?
+  episodeId    String?
+  mediaTitle   MediaTitle? @relation(fields: [mediaTitleId], references: [id], onDelete: Cascade)
+  episode      Episode?    @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  @@unique([provider, externalId])
+  @@index([mediaTitleId])
+  @@index([episodeId])
+}
+
+model PlaybackVariant {
+  id           String           @id @default(cuid())
+  mediaTitleId String?
+  episodeId    String?
+  channelId    String?
+  label        String
+  protocol     PlaybackProtocol
+  reference    String
+  quality      String?
+  videoCodec   String?
+  audioCodec   String?
+  languageCode String?
+  regionCodes  String[]
+  priority     Int              @default(100)
+  enabled      Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  mediaTitle   MediaTitle?      @relation(fields: [mediaTitleId], references: [id], onDelete: Cascade)
+  episode      Episode?         @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  channel      Channel?         @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  health       VariantHealth?
+  sessions     PlaybackSession[]
+  @@index([mediaTitleId, enabled, priority])
+  @@index([episodeId, enabled, priority])
+  @@index([channelId, enabled, priority])
+}
+
+model VariantHealth {
+  variantId String @id
+  status VariantHealthStatus @default(UNKNOWN)
+  latencyMs Int?
+  consecutiveFailures Int @default(0)
+  lastSuccessAt DateTime?
+  lastFailureAt DateTime?
+  circuitOpenUntil DateTime?
+  updatedAt DateTime @updatedAt
+  variant PlaybackVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+}
+
+model PlaybackSession {
+  id String @id @default(cuid())
+  tokenHash String @unique
+  userId String
+  variantId String
+  deviceId String
+  status PlaybackSessionStatus @default(ACTIVE)
+  mediaTitleId String?
+  episodeId String?
+  channelId String?
+  expiresAt DateTime
+  lastHeartbeatAt DateTime @default(now())
+  endedAt DateTime?
+  createdAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  variant PlaybackVariant @relation(fields: [variantId], references: [id])
+  qoeEvents QoeEvent[]
+  @@index([userId, status, expiresAt])
+  @@index([variantId, status])
+}
+
+model QoeEvent {
+  id String @id @default(cuid())
+  sessionId String
+  type String
+  value Float?
+  detail Json?
+  createdAt DateTime @default(now())
+  session PlaybackSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  @@index([sessionId, createdAt])
+  @@index([type, createdAt])
+}
+
+model ChannelRight {
+  id              String   @id @default(cuid())
+  channelId       String
+  countryCode     String
+  webAllowed      Boolean  @default(false)
+  mobileAllowed   Boolean  @default(false)
+  tvAllowed       Boolean  @default(false)
+  validFrom       DateTime
+  validUntil      DateTime
+  approved        Boolean  @default(false)
+  contractRef     String?
+  channel         Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  @@unique([channelId, countryCode])
+  @@index([countryCode, approved, validUntil])
+}
+
+model ChannelPrice {
+  id          String        @id @default(cuid())
+  channelId   String
+  currency    String
+  period      BillingPeriod
+  amountMinor Int
+  active      Boolean       @default(true)
+  channel     Channel       @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  @@unique([channelId, currency, period])
+}
+
+model Package {
+  id                    String             @id @default(cuid())
+  slug                  String             @unique
+  names                 Json
+  searchText            String
+  description           Json?
+  badge                 Json?
+  status                PublicationStatus  @default(DRAFT)
+  featured              Boolean            @default(false)
+  sortOrder             Int                @default(0)
+  maxDevices            Int                @default(1)
+  maxConcurrentStreams  Int                @default(1)
+  allowedCountries      String[]
+  publishedAt           DateTime?
+  scheduledFor          DateTime?
+  archivedAt            DateTime?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  channels              PackageChannel[]
+  prices                PackagePrice[]
+  cartItems             CartItem[]
+  orders                Order[]
+  subscriptions         Subscription[]
+  @@index([status, sortOrder])
+}
+
+model Cart {
+  id String @id @default(cuid())
+  userId String
+  active Boolean @default(true)
+  countryCode String
+  currency String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+  items CartItem[]
+  @@index([userId,active])
+}
+
+model CartItem {
+  id String @id @default(cuid())
+  cartId String
+  packageId String
+  period BillingPeriod
+  createdAt DateTime @default(now())
+  cart Cart @relation(fields:[cartId],references:[id],onDelete:Cascade)
+  package Package @relation(fields:[packageId],references:[id])
+  @@unique([cartId,packageId,period])
+}
+
+model Order {
+  id String @id @default(cuid())
+  number String @unique
+  userId String
+  packageId String
+  period BillingPeriod
+  status OrderStatus @default(PENDING)
+  productSnapshot Json
+  contentSnapshot Json
+  countryCode String
+  currency String
+  subtotalMinor Int
+  taxMinor Int
+  totalMinor Int
+  createdAt DateTime @default(now())
+  paidAt DateTime?
+  user User @relation(fields:[userId],references:[id])
+  package Package @relation(fields:[packageId],references:[id])
+  paymentEvents PaymentEvent[]
+  subscription Subscription?
+  @@index([userId,createdAt])
+}
+
+model PaymentEvent {
+  id String @id @default(cuid())
+  externalId String @unique
+  orderId String
+  type PaymentEventType
+  payload Json
+  processedAt DateTime @default(now())
+  order Order @relation(fields:[orderId],references:[id])
+  @@index([orderId,processedAt])
+}
+
+model Subscription {
+  id String @id @default(cuid())
+  userId String
+  orderId String @unique
+  packageId String
+  status SubscriptionStatus @default(PENDING)
+  startsAt DateTime?
+  expiresAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user User @relation(fields:[userId],references:[id])
+  order Order @relation(fields:[orderId],references:[id])
+  package Package @relation(fields:[packageId],references:[id])
+  entitlements Entitlement[]
+  @@index([userId,status,expiresAt])
+}
+
+model Entitlement {
+  id String @id @default(cuid())
+  subscriptionId String
+  scope EntitlementScope
+  channelId String?
+  active Boolean @default(true)
+  subscription Subscription @relation(fields:[subscriptionId],references:[id],onDelete:Cascade)
+  @@unique([subscriptionId,scope,channelId])
+  @@index([scope,channelId,active])
+}
+
+model CustomerDevice {
+  id String @id @default(cuid())
+  userId String
+  deviceId String
+  label String?
+  lastSeenAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+  @@unique([userId,deviceId])
+}
+
+model EpgChannelMapping {
+  id String @id @default(cuid())
+  sourceId String
+  externalChannelId String
+  externalName String?
+  channelId String?
+  confidence Float?
+  updatedAt DateTime @updatedAt
+  source SourceAccount @relation(fields:[sourceId],references:[id],onDelete:Cascade)
+  channel Channel? @relation(fields:[channelId],references:[id],onDelete:SetNull)
+  programs EpgProgram[]
+  @@unique([sourceId,externalChannelId])
+  @@index([sourceId,channelId])
+}
+
+model EpgImportRun {
+  id String @id @default(cuid())
+  sourceId String
+  status String
+  channelsSeen Int @default(0)
+  programsImported Int @default(0)
+  invalidDates Int @default(0)
+  errorCode String?
+  startedAt DateTime @default(now())
+  finishedAt DateTime?
+  source SourceAccount @relation(fields:[sourceId],references:[id],onDelete:Cascade)
+  @@index([sourceId,startedAt])
+}
+
+model EpgProgram {
+  id String @id @default(cuid())
+  mappingId String
+  channelId String?
+  externalId String
+  title Json
+  description Json?
+  category String?
+  startAt DateTime
+  endAt DateTime
+  sourceUpdatedAt DateTime @default(now())
+  mapping EpgChannelMapping @relation(fields:[mappingId],references:[id],onDelete:Cascade)
+  channel Channel? @relation(fields:[channelId],references:[id],onDelete:Cascade)
+  reminders ProgramReminder[]
+  @@unique([mappingId,externalId])
+  @@index([channelId,startAt,endAt])
+}
+
+model ProgramReminder {
+  id String @id @default(cuid())
+  userId String
+  programId String
+  notifyAt DateTime
+  sentAt DateTime?
+  createdAt DateTime @default(now())
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+  program EpgProgram @relation(fields:[programId],references:[id],onDelete:Cascade)
+  @@unique([userId,programId])
+  @@index([notifyAt,sentAt])
+}
+
+model ChannelAvailability {
+  id String @id @default(cuid())
+  channelId String
+  sourceId String?
+  available Boolean
+  latencyMs Int?
+  checkedAt DateTime @default(now())
+  channel Channel @relation(fields:[channelId],references:[id],onDelete:Cascade)
+  @@index([channelId,checkedAt])
+  @@index([sourceId,checkedAt])
+}
+
+model PackageChannel {
+  packageId String
+  channelId String
+  package   Package @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  channel   Channel @relation(fields: [channelId], references: [id])
+  @@id([packageId, channelId])
+}
+
+model PackagePrice {
+  id          String        @id @default(cuid())
+  packageId   String
+  currency    String
+  period      BillingPeriod
+  amountMinor Int
+  active      Boolean       @default(true)
+  package     Package       @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  @@unique([packageId, currency, period])
+}

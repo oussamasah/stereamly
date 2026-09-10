@@ -1,0 +1,26 @@
+{
+  "name": "stream-platform",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @stream/api && npm run build -w @stream/web",
+    "dev": "concurrently -n api,web -c blue,green \"npm run dev -w @stream/api\" \"npm run dev -w @stream/web\"",
+    "lint": "npm run lint -w @stream/api && npm run lint -w @stream/web",
+    "test": "npm run test -w @stream/api && npm run test -w @stream/web",
+    "typecheck": "npm run typecheck -w @stream/api && npm run typecheck -w @stream/web",
+    "check": "npm run lint && npm run typecheck && npm test && npm run build",
+    "db:generate": "npm run db:generate -w @stream/api",
+    "db:migrate": "npm run db:migrate -w @stream/api",
+    "inspect:media": "node scripts/inspect-media.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "playwright": "^1.63.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

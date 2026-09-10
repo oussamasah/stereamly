@@ -1,0 +1,30 @@
+name: Deploy staging
+on:
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      matrix:
+        app: [api, web]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.AWS_STAGING_DEPLOY_ROLE }}
+          aws-region: eu-west-3
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+      - name: Build and push immutable image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          REPOSITORY: streamly-${{ matrix.app }}
+          IMAGE_TAG: ${{ github.sha }}
+          NEXT_PUBLIC_API_URL: ${{ vars.STAGING_PUBLIC_API_URL }}
+        run: docker build --build-arg NEXT_PUBLIC_API_URL="$NEXT_PUBLIC_API_URL" -f apps/${{ matrix.app }}/Dockerfile -t "$REGISTRY/$REPOSITORY:$IMAGE_TAG" . && docker push "$REGISTRY/$REPOSITORY:$IMAGE_TAG"
+      - name: Trigger ECS rolling deployment
+        run: aws ecs update-service --cluster streamly-staging --service streamly-${{ matrix.app }} --force-new-deployment
+
