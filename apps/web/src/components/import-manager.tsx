@@ -56,13 +56,19 @@ export function ImportManager() {
     setBusy('sync');
     try {
       let job = initial;
-      const first = await adminFetch(`/admin/imports/${job.id}?items=false`);
-      if (first.ok) job = await first.json() as ImportJob;
+      const readJob = async () => {
+        try {
+          const response = await adminFetch(`/admin/imports/${job.id}?items=false`);
+          return response.ok ? await response.json() as ImportJob : null;
+        } catch { return null; }
+      };
+      job = await readJob() ?? job;
       for (let attempt = 0; attempt < 300 && !['PREVIEW', 'FAILED', 'CANCELLED', 'COMPLETED', 'PARTIAL'].includes(job.status); attempt++) {
         await new Promise(resolve => window.setTimeout(resolve, 2000));
         if (token !== monitorToken.current) return;
-        const response = await adminFetch(`/admin/imports/${job.id}?items=false`); if (!response.ok) { await new Promise(resolve => window.setTimeout(resolve, 3000)); continue; }
-        job = await response.json();
+        const update = await readJob();
+        if (!update) { setMessage('Connexion momentanément interrompue. Reprise du suivi…'); await new Promise(resolve => window.setTimeout(resolve, 3000)); continue; }
+        job = update;
         setMessage(job.status === 'DOWNLOADING' && job.totalItems ? `Téléchargement ${job.progress}% · ${job.totalItems.toLocaleString('fr-FR')} chaînes reçues…` : `Synchronisation ${job.progress}%…`);
       }
       if (token !== monitorToken.current) return;
@@ -76,8 +82,9 @@ export function ImportManager() {
       for (let attempt = 0; attempt < 900 && !['COMPLETED', 'PARTIAL', 'FAILED', 'CANCELLED'].includes(job.status); attempt++) {
         await new Promise(resolve => window.setTimeout(resolve, 2000));
         if (token !== monitorToken.current) return;
-        const response = await adminFetch(`/admin/imports/${job.id}?items=false`); if (!response.ok) continue;
-        job = await response.json(); setMessage(`Création des brouillons ${job.progress}%…`);
+        const update = await readJob();
+        if (!update) { setMessage('Connexion momentanément interrompue. Reprise du suivi…'); continue; }
+        job = update; setMessage(`Création des brouillons ${job.progress}%…`);
       }
       if (job.status === 'COMPLETED') { await loadChannels(id); setMessage('Synchronisation terminée. Les chaînes sont disponibles.'); }
       else setMessage(job.status === 'PARTIAL' || job.status === 'FAILED' ? importFailureMessage(job) : 'La création des brouillons continue côté serveur.');
