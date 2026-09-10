@@ -1,15 +1,16 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { getMessages, Locale } from '../i18n';
+import { adminRoles, AuthUser, useAuth } from './auth-provider';
 
-type Session = { accessToken?: string; user?: { displayName: string; role: string } };
-const adminRoles = new Set(['CONTENT_MANAGER', 'TECHNICAL_ADMIN', 'SUPER_ADMIN']);
+type Session = { accessToken?: string; user?: AuthUser };
 
 export function AuthForm({ locale, mode }: { locale: Locale; mode: 'login' | 'register' }) {
   const t = getMessages(locale);
   const router = useRouter();
+  const { status: authStatus, user: currentUser, acceptSession } = useAuth();
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
   const api = process.env.NEXT_PUBLIC_API_URL;
@@ -23,12 +24,18 @@ export function AuthForm({ locale, mode }: { locale: Locale; mode: 'login' | 're
   function destination(role?: string) { return role && adminRoles.has(role) ? `/${locale}/admin` : `/${locale}`; }
   function saveAndRedirect(session: Session) {
     if (!session.accessToken || !session.user) return false;
-    sessionStorage.setItem('accessToken', session.accessToken);
+    acceptSession({ accessToken: session.accessToken, user: session.user });
     setStatus(`${copy.welcome} ${session.user.displayName}. Redirection…`);
-    router.replace(destination(session.user.role));
+    const requested = new URLSearchParams(window.location.search).get('next');
+    const safeNext = requested?.startsWith(`/${locale}/`) && !requested.startsWith('//') ? requested : null;
+    router.replace(safeNext ?? destination(session.user.role));
     router.refresh();
     return true;
   }
+
+  useEffect(() => {
+    if (authStatus === 'authenticated') router.replace(currentUser?.role && adminRoles.has(currentUser.role) ? `/${locale}/admin` : `/${locale}`);
+  }, [authStatus, currentUser?.role, locale, router]);
 
   async function post(path: string, body: unknown) {
     return fetch(`${api}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'include', body: JSON.stringify(body) });
