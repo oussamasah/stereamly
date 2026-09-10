@@ -5,17 +5,19 @@ import { SourceVaultService } from '../sources/source-vault.service';
 import { ImportRuleDto, SelectionDto, StartImportDto } from './import.dto';
 import { ImportReaderService } from './import-reader.service';
 import { NormalizedSourceItem, normalize } from './m3u-parser';
+import { createHash, randomUUID } from 'node:crypto';
 
 @Injectable()
 export class ImportsService implements OnModuleInit {
+  private readonly running = new Set<string>();
   constructor(private readonly prisma: PrismaService, private readonly vault: SourceVaultService, private readonly reader: ImportReaderService) {}
   async onModuleInit() {
     const interrupted=await this.prisma.importJob.findMany({where:{status:{in:['QUEUED','CONNECTING','DOWNLOADING','PARSING','STAGING','APPLYING']}},select:{id:true,sourceId:true,status:true,createdAt:true}});
     for(const job of interrupted){
-      if(job.status==='APPLYING')setImmediate(()=>void this.runApply(job.id,job.sourceId,job.createdAt));
+      if(job.status==='APPLYING')setImmediate(()=>void this.executeApply(job.id,job.sourceId,job.createdAt));
       else{
         await this.prisma.$transaction([this.prisma.importStagedItem.deleteMany({where:{jobId:job.id}}),this.prisma.importJob.update({where:{id:job.id},data:{status:'QUEUED',progress:0,errorCode:null,errorDetail:null,finishedAt:null}})]);
-        setImmediate(()=>void this.run(job.id));
+        setImmediate(()=>void this.execute(job.id));
       }
     }
     const completed = await this.prisma.importJob.findMany({ where: { status: 'COMPLETED' }, distinct: ['sourceId'], orderBy: { createdAt: 'desc' }, select: { sourceId: true, createdAt: true } });
@@ -25,11 +27,19 @@ export class ImportsService implements OnModuleInit {
   async get(id: string, includeItems = true) { const job = await this.prisma.importJob.findUnique({ where: { id }, include: { source: { select: { id: true, name: true, type: true } }, stagedItems: includeItems ? { orderBy: [{ changeType: 'asc' }, { displayName: 'asc' }] } : false } }); if (!job) throw new NotFoundException('IMPORT_NOT_FOUND'); return job; }
   async start(sourceId: string, dto: StartImportDto) {
     const source = await this.prisma.sourceAccount.findUnique({ where: { id: sourceId } }); if (!source) throw new NotFoundException('SOURCE_NOT_FOUND'); if (!source.enabled || source.status !== 'READY') throw new BadRequestException('SOURCE_MUST_BE_READY_AND_ENABLED');
-    const staleBefore = new Date(Date.now() - 10 * 60_000);
-    await this.prisma.importJob.updateMany({ where: { sourceId, status: { in: ['QUEUED', 'CONNECTING', 'DOWNLOADING', 'PARSING', 'STAGING', 'APPLYING'] }, createdAt: { lt: staleBefore } }, data: { status: 'FAILED', errorCode: 'IMPORT_STALE_RECOVERED', errorDetail: 'IMPORT_STALE_RECOVERED', finishedAt: new Date() } });
-    if (await this.prisma.importJob.count({ where: { sourceId, status: { in: ['QUEUED', 'CONNECTING', 'DOWNLOADING', 'PARSING', 'STAGING', 'PREVIEW', 'APPLYING'] } } })) throw new BadRequestException('SOURCE_IMPORT_ALREADY_RUNNING');
-    const job = await this.prisma.importJob.create({ data: { sourceId, scope: dto.scope.length ? dto.scope : this.defaultScope(source) } }); setImmediate(() => void this.run(job.id)); return job;
+    const current = await this.prisma.importJob.findFirst({ where: { sourceId, status: { in: ['QUEUED', 'CONNECTING', 'DOWNLOADING', 'PARSING', 'STAGING', 'PREVIEW', 'APPLYING'] } }, orderBy: { createdAt: 'desc' } });
+    if (current) {
+      if (current.status === 'APPLYING') setImmediate(() => void this.executeApply(current.id, current.sourceId, current.createdAt));
+      else if (current.status !== 'PREVIEW' && !this.running.has(current.id)) {
+        await this.prisma.$transaction([this.prisma.importStagedItem.deleteMany({where:{jobId:current.id}}),this.prisma.importJob.update({where:{id:current.id},data:{status:'QUEUED',progress:0,totalItems:0,cancelRequested:false,errorCode:null,errorDetail:null,startedAt:null,finishedAt:null}})]);
+        setImmediate(() => void this.execute(current.id));
+        return this.get(current.id,false);
+      }
+      return current;
+    }
+    const job = await this.prisma.importJob.create({ data: { sourceId, scope: dto.scope.length ? dto.scope : this.defaultScope(source) } }); setImmediate(() => void this.execute(job.id)); return job;
   }
+  private async execute(jobId:string){if(this.running.has(jobId))return;this.running.add(jobId);try{await this.run(jobId);}finally{this.running.delete(jobId);}}
   async run(jobId: string) {
     const job = await this.prisma.importJob.findUnique({ where: { id: jobId }, include: { source: { include: { secret: true, importRules: true } } } }); if (!job?.source.secret) return;
     try {
@@ -58,14 +68,31 @@ export class ImportsService implements OnModuleInit {
   async selection(id: string, dto: SelectionDto) { await this.requirePreview(id); await this.prisma.$transaction([this.prisma.importStagedItem.updateMany({ where: { jobId: id }, data: { selected: false } }), this.prisma.importStagedItem.updateMany({ where: { jobId: id, id: { in: dto.selectedIds }, changeType: { notIn: ['CONFLICT', 'EXCLUDED'] } }, data: { selected: true } })]); return this.get(id); }
   async apply(id: string) {
     await this.requirePreview(id); const job = await this.prisma.importJob.update({ where: { id }, data: { status: 'APPLYING', progress: 0 } });
-    setImmediate(() => void this.runApply(id, job.sourceId, job.createdAt)); return this.get(id, false);
+    setImmediate(() => void this.executeApply(id, job.sourceId, job.createdAt)); return this.get(id, false);
   }
+  private async executeApply(id:string,sourceId:string,createdAt:Date){if(this.running.has(id))return;this.running.add(id);try{const job=await this.prisma.importJob.findUnique({where:{id},select:{status:true}});if(job?.status==='PREVIEW')await this.prisma.importJob.update({where:{id},data:{status:'APPLYING',progress:0}});await this.runApply(id,sourceId,createdAt);}finally{this.running.delete(id);}}
   private async runApply(id: string, sourceId: string, createdAt: Date) {
-    try { const selected = await this.prisma.importStagedItem.findMany({ where: { jobId: id, selected: true, changeType: { notIn: ['CONFLICT', 'EXCLUDED', 'UNCHANGED'] } } }); let done = 0,lastProgress = -1; for(let at=0;at<selected.length;at+=6){if(await this.cancelled(id)){await this.cancel(id);return;}const batch=selected.slice(at,at+6);await Promise.all(batch.map(item=>item.changeType==='REMOVE'?this.prisma.sourceCatalogItem.updateMany({where:{sourceId,kind:item.kind,remoteId:item.remoteId},data:{active:false}}):this.applyItem(sourceId,{...item,normalized:item.normalized as Prisma.InputJsonValue})));done+=batch.length;const progress=Math.floor(done/Math.max(selected.length,1)*100);if(progress>=lastProgress+2){lastProgress=progress;await this.state(id,'APPLYING',progress);}} await this.prisma.importJob.update({ where: { id }, data: { status: 'COMPLETED', progress: 100, finishedAt: new Date() } }); await this.prisma.importJob.updateMany({where:{sourceId,id:{not:id},createdAt:{lt:createdAt},status:'PREVIEW'},data:{status:'CANCELLED',errorCode:'IMPORT_SUPERSEDED',errorDetail:'IMPORT_SUPERSEDED',finishedAt:new Date()}});await this.prisma.importJob.updateMany({where:{sourceId,id:{not:id},createdAt:{lt:createdAt},status:'APPLYING'},data:{cancelRequested:true}}); }
+    try { const selected = await this.prisma.importStagedItem.findMany({ where: { jobId: id, selected: true, changeType: { notIn: ['CONFLICT', 'EXCLUDED', 'UNCHANGED'] } } }); let done = 0,lastProgress = -1;const liveAdds=selected.filter(item=>item.kind==='LIVE'&&item.changeType==='ADD');if(liveAdds.length){await this.bulkAddLive(sourceId,liveAdds);done+=liveAdds.length;await this.state(id,'APPLYING',Math.min(99,Math.floor(done/Math.max(selected.length,1)*100)));}const remaining=selected.filter(item=>!(item.kind==='LIVE'&&item.changeType==='ADD'));for(let at=0;at<remaining.length;at+=20){if(await this.cancelled(id)){await this.cancel(id);return;}const batch=remaining.slice(at,at+20);await Promise.all(batch.map(item=>item.changeType==='REMOVE'?this.prisma.sourceCatalogItem.updateMany({where:{sourceId,kind:item.kind,remoteId:item.remoteId},data:{active:false}}):this.applyItem(sourceId,{...item,normalized:item.normalized as Prisma.InputJsonValue})));done+=batch.length;const progress=Math.min(99,Math.floor(done/Math.max(selected.length,1)*100));if(progress>=lastProgress+2){lastProgress=progress;await this.state(id,'APPLYING',progress);}} await this.prisma.importJob.update({ where: { id }, data: { status: 'COMPLETED', progress: 100, finishedAt: new Date() } }); await this.prisma.importJob.updateMany({where:{sourceId,id:{not:id},createdAt:{lt:createdAt},status:'PREVIEW'},data:{status:'CANCELLED',errorCode:'IMPORT_SUPERSEDED',errorDetail:'IMPORT_SUPERSEDED',finishedAt:new Date()}});await this.prisma.importJob.updateMany({where:{sourceId,id:{not:id},createdAt:{lt:createdAt},status:'APPLYING'},data:{cancelRequested:true}}); }
     catch (error) { await this.prisma.importJob.update({ where: { id }, data: { status: 'PARTIAL', errorCode: this.error(error), errorDetail: this.error(error), finishedAt: new Date() } }); }
   }
   async requestCancel(id: string) { const job = await this.prisma.importJob.findUnique({ where: { id } }); if (!job) throw new NotFoundException('IMPORT_NOT_FOUND'); return ['COMPLETED', 'FAILED', 'CANCELLED'].includes(job.status) ? job : this.prisma.importJob.update({ where: { id }, data: { cancelRequested: true } }); }
   rules(sourceId: string) { return this.prisma.sourceImportRule.findMany({ where: { sourceId }, orderBy: { createdAt: 'asc' } }); } createRule(sourceId: string, dto: ImportRuleDto) { return this.prisma.sourceImportRule.create({ data: { sourceId, ...dto, exclude: dto.exclude ?? true } }); } deleteRule(id: string) { return this.prisma.sourceImportRule.delete({ where: { id } }); }
+  private async bulkAddLive(sourceId:string,items:{remoteId:string;fingerprint:string;groupName:string|null;displayName:string;normalized:Prisma.JsonValue;streamCiphertext:string|null;streamIv:string|null;streamAuthTag:string|null}[]){
+    const existing=new Set<string>();
+    for(let at=0;at<items.length;at+=1_000){const rows=await this.prisma.sourceCatalogItem.findMany({where:{sourceId,kind:'LIVE',remoteId:{in:items.slice(at,at+1_000).map(item=>item.remoteId)}},select:{remoteId:true}});for(const row of rows)existing.add(row.remoteId);}
+    const pending=items.filter(item=>!existing.has(item.remoteId));if(!pending.length)return;
+    const groupSlugs=new Map<string,string>();for(const item of pending){const group=item.groupName||'Import';groupSlugs.set(group,this.categorySlug(sourceId,group));}
+    await this.prisma.category.createMany({data:[...groupSlugs].map(([group,slug])=>({slug,names:{fr:group,en:group,ar:group} as Prisma.InputJsonValue})),skipDuplicates:true});
+    const categories=await this.prisma.category.findMany({where:{slug:{in:[...groupSlugs.values()]}},select:{id:true,slug:true}}),categoryIds=new Map(categories.map(category=>[category.slug,category.id]));
+    for(let at=0;at<pending.length;at+=500){
+      const batch=pending.slice(at,at+500),now=new Date(),prepared=batch.map(item=>{const metadata=item.normalized as Record<string,unknown>,group=item.groupName||'Import',channelId=randomUUID(),suffix=createHash('sha256').update(`${sourceId}:${item.remoteId}`).digest('hex').slice(0,14);return{item,channelId,slug:`${this.slug(item.displayName).slice(0,48)}-${suffix}`,categoryId:categoryIds.get(groupSlugs.get(group)!)!,logoUrl:typeof metadata.logoUrl==='string'&&metadata.logoUrl?metadata.logoUrl:null,languageCode:typeof metadata.languageCode==='string'&&metadata.languageCode?metadata.languageCode:'und'};});
+      await this.prisma.$transaction([
+        this.prisma.channel.createMany({data:prepared.map(value=>({id:value.channelId,slug:value.slug,names:{fr:value.item.displayName,en:value.item.displayName,ar:value.item.displayName},searchText:value.item.displayName,logoUrl:value.logoUrl,languageCode:value.languageCode,countryCode:'ALL',categoryId:value.categoryId,status:'DRAFT',webAvailable:false})),skipDuplicates:true}),
+        this.prisma.playbackVariant.createMany({data:prepared.map(value=>({channelId:value.channelId,label:'Source importée',protocol:'REMOTE_REFERENCE',reference:`source-item:${sourceId}:LIVE:${value.item.remoteId}`,regionCodes:['ALL']})),skipDuplicates:true}),
+        this.prisma.sourceCatalogItem.createMany({data:prepared.map(value=>({sourceId,kind:'LIVE',remoteId:value.item.remoteId,fingerprint:value.item.fingerprint,groupName:value.item.groupName,displayName:value.item.displayName,normalized:value.item.normalized as Prisma.InputJsonValue,active:true,lastSeenAt:now,channelId:value.channelId,streamCiphertext:value.item.streamCiphertext,streamIv:value.item.streamIv,streamAuthTag:value.item.streamAuthTag})),skipDuplicates:true}),
+      ]);
+    }
+  }
   private async applyItem(sourceId: string, item: { kind: ImportedItemKind; remoteId: string; fingerprint: string; groupName: string | null; displayName: string; normalized: Prisma.InputJsonValue; streamCiphertext: string | null; streamIv: string | null; streamAuthTag: string | null }) {
     const existing = await this.prisma.sourceCatalogItem.findUnique({ where: { sourceId_kind_remoteId: { sourceId, kind: item.kind, remoteId: item.remoteId } } }); let channelId = existing?.channelId, mediaTitleId = existing?.mediaTitleId;
     if (!channelId && !mediaTitleId && item.kind === 'LIVE') channelId = await this.createChannel(sourceId, item); if (!channelId && !mediaTitleId && ['MOVIE', 'SERIES'].includes(item.kind)) mediaTitleId = await this.createMedia(sourceId, item);
@@ -79,6 +106,7 @@ export class ImportsService implements OnModuleInit {
   private async createMedia(sourceId: string, item: { kind: ImportedItemKind; remoteId: string; displayName: string; normalized: Prisma.InputJsonValue }) { const metadata = item.normalized as Record<string, unknown>,logoUrl=typeof metadata.logoUrl==='string'&&metadata.logoUrl?metadata.logoUrl:undefined, slug = await this.uniqueSlug(this.slug(item.displayName), 'media'); const media = await this.prisma.mediaTitle.create({ data: { slug, type: item.kind === 'MOVIE' ? 'MOVIE' : 'SERIES', names: { fr: item.displayName, en: item.displayName, ar: item.displayName }, searchText: item.displayName, countryCodes: [], status: 'DRAFT', releaseYear: typeof metadata.year === 'number' ? metadata.year : undefined,...(logoUrl?{images:{create:{type:'POSTER',url:logoUrl,sortOrder:0}}}:{}), ...(item.kind === 'MOVIE' ? { movie: { create: { durationSec: 1 } } } : { series: { create: {} } }) } }); await this.prisma.playbackVariant.create({ data: { mediaTitleId: media.id, label: 'Source importée', protocol: 'REMOTE_REFERENCE', reference: `source-item:${sourceId}:${item.kind}:${item.remoteId}`, regionCodes: ['ALL'] } }); return media.id; }
   private normalized(item: NormalizedSourceItem) { const safe = { ...item }; delete safe.streamRef; delete safe.raw; return safe as unknown as Prisma.InputJsonValue; } private raw(item: NormalizedSourceItem): Prisma.InputJsonValue | typeof Prisma.JsonNull { return item.raw ? item.raw as Prisma.InputJsonValue : Prisma.JsonNull; }
   private excluded(item: NormalizedSourceItem, rules: { field: string; pattern: string; exclude: boolean }[]) { return rules.some(rule => rule.exclude && String(item[rule.field as keyof NormalizedSourceItem] ?? '').toLowerCase().includes(rule.pattern.toLowerCase())); }
+  private categorySlug(sourceId:string,group:string){const suffix=createHash('sha256').update(group).digest('hex').slice(0,10);return `${this.slug(group).slice(0,45)}-${sourceId.slice(-6)}-${suffix}`;}
   private async conflictTargets(fingerprints:string[]){const result=new Map<string,Set<string>>(),unique=[...new Set(fingerprints)];for(let at=0;at<unique.length;at+=1_000){const rows=await this.prisma.sourceCatalogItem.findMany({where:{fingerprint:{in:unique.slice(at,at+1_000)},active:true},select:{fingerprint:true,channelId:true,mediaTitleId:true}});for(const row of rows){const target=row.channelId??row.mediaTitleId;if(!target)continue;const targets=result.get(row.fingerprint)??new Set<string>();targets.add(target);result.set(row.fingerprint,targets);}}return result;}
   private counts(rows: { changeType: ImportChangeType }[]) { const out = { add: 0, update: 0, unchanged: 0, remove: 0, excluded: 0, conflict: 0 }; for (const row of rows) out[row.changeType.toLowerCase() as keyof typeof out]++; return out; }
   private async registerStreamHosts(sourceId:string,current:string[],items:NormalizedSourceItem[]){const hosts=new Set(current.map(value=>value.toLowerCase()));for(const item of items){if(!item.streamRef?.startsWith('http://')&&!item.streamRef?.startsWith('https://'))continue;try{hosts.add(new URL(item.streamRef).hostname.toLowerCase())}catch{/* Invalid entries remain unavailable without failing the whole playlist. */}}if(hosts.size>2_000)throw new BadRequestException('M3U_TOO_MANY_STREAM_HOSTS');if(hosts.size!==current.length)await this.prisma.sourceAccount.update({where:{id:sourceId},data:{allowedHosts:[...hosts]}});}
