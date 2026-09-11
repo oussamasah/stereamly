@@ -24,11 +24,18 @@ export class PortalClient{
   throw new Error(reachable?lastCode:'PORTAL_NOT_FOUND');
  }
  async catalogue(source:PortalSource,secret:SourceCredentials,onProgress?:PortalProgress):Promise<NormalizedSourceItem[]>{
-  const session=await this.connect(source,secret),out:NormalizedSourceItem[]=[];
-  if(source.syncLive){const genres=await this.categories(session,source,secret,'itv'),data=await this.liveChannels(session,source,secret,onProgress);for(const raw of data){const item=this.item(raw,'LIVE',genres);if(item)out.push(item);}}
-  if(source.syncMovies){const[genres,data]=await Promise.all([this.categories(session,source,secret,'vod'),this.list(session,source,secret,'vod','get_ordered_list')]);for(const raw of data){const item=this.item(raw,'MOVIE',genres);if(item)out.push(item);}}
-  if(source.syncSeries){const[genres,data]=await Promise.all([this.categories(session,source,secret,'series'),this.list(session,source,secret,'series','get_ordered_list')]);for(const raw of data){const item=this.item(raw,'SERIES',genres);if(item)out.push(item);}}
+  const out:NormalizedSourceItem[]=[];for await(const batch of this.catalogueBatches(source,secret,onProgress))out.push(...batch);
   return out;
+ }
+ async *catalogueBatches(source:PortalSource,secret:SourceCredentials,onProgress?:PortalProgress):AsyncGenerator<NormalizedSourceItem[]>{
+  const session=await this.connect(source,secret);let received=0;
+  const definitions:{enabled:boolean;type:'itv'|'vod'|'series';kind:'LIVE'|'MOVIE'|'SERIES'}[]=[{enabled:source.syncLive,type:'itv',kind:'LIVE'},{enabled:source.syncMovies,type:'vod',kind:'MOVIE'},{enabled:source.syncSeries,type:'series',kind:'SERIES'}];
+  for(const definition of definitions){
+   if(!definition.enabled)continue;const genres=await this.categories(session,source,secret,definition.type);let yielded=false,orderedError:unknown;
+   try{for await(const page of this.pages(session,source,secret,definition.type,'get_ordered_list',definition.type==='itv'?{genre:'*',fav:'0',sortby:'number'}:{})){const items=page.items.map(raw=>this.item(raw,definition.kind,genres)).filter((item):item is NormalizedSourceItem=>!!item);received+=items.length;await onProgress?.(received,page.total||received);if(items.length){yielded=true;yield items;}}}catch(error){orderedError=error;}
+   if(definition.type==='itv'&&!yielded){const raw=await this.call(session.endpoint,source,secret,'itv','get_all_channels',{},session.headers);const items=this.array(raw).map(value=>this.item(value,'LIVE',genres)).filter((item):item is NormalizedSourceItem=>!!item);received+=items.length;await onProgress?.(received,received);if(items.length){yielded=true;yield items;}}
+   if(!yielded&&orderedError)throw orderedError;
+  }
  }
  async resolve(source:PortalSource,secret:SourceCredentials,reference:string){
   const match=/^portal:(itv|vod|series):(.+)$/.exec(reference);if(!match)throw new Error('PORTAL_REFERENCE_INVALID');
@@ -56,6 +63,7 @@ export class PortalClient{
   return output;
  }
  private item(raw:Record<string,unknown>,kind:'LIVE'|'MOVIE'|'SERIES',genres:Map<string,string>):NormalizedSourceItem|null{const remoteId=String(raw.id??raw.ch_id??raw.movie_id??raw.series_id??''),displayName=String(raw.name??raw.title??'').trim(),command=String(raw.cmd??raw.url??'').trim();if(!remoteId||!displayName||!command)return null;const portalType=kind==='LIVE'?'itv':kind==='MOVIE'?'vod':'series',streamRef=`portal:${portalType}:${Buffer.from(command).toString('base64url')}`,groupId=String(raw.tv_genre_id??raw.category_id??raw.genre_id??'');return{kind,remoteId,fingerprint:createHash('sha256').update(`${kind}|${displayName.toLowerCase()}|${remoteId}`).digest('hex'),displayName,groupName:genres.get(groupId)??String(raw.category_name??'Sans catégorie'),streamRef,logoUrl:String(raw.logo??raw.screenshot_uri??raw.cover??'')||undefined,raw:{year:raw.year,rating:raw.rating,portalType}}}
+ private async *pages(session:PortalSession,source:PortalSource,secret:SourceCredentials,type:string,action:string,extra:Record<string,string>={}):AsyncGenerator<{items:Record<string,unknown>[];page:number;pages:number;total:number}>{let page=1,pages=1;do{let value:Record<string,unknown>|undefined;for(let attempt=0;attempt<3&&!value;attempt++){try{value=await this.call(session.endpoint,source,secret,type,action,{...extra,p:String(page)},session.headers)}catch(error){if(attempt===2)throw error;await new Promise(resolve=>setTimeout(resolve,500*2**attempt));}}const items=this.array(value!);const total=Math.max(items.length,Number(value!.total_items??items.length)||items.length),perPage=Math.max(1,Number(value!.max_page_items??items.length)||items.length);pages=Math.max(1,Math.ceil(total/perPage));yield{items,page,pages,total};if(!items.length)break;page++;}while(page<=pages)}
  private async call(endpoint:URL,source:PortalSource,secret:SourceCredentials,type:string,action:string,extra:Record<string,string>,headers?:Record<string,string>,probing=false):Promise<Record<string,unknown>>{
   let url=new URL(endpoint);url.search=new URLSearchParams({type,action,JsHttpRequest:'1-xml',...extra}).toString();let response:Response|undefined;
   try{

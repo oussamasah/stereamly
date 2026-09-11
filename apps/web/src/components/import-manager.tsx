@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { adminFetch } from '../lib/admin-api';
 
-type Source = { id: string; name: string; type: string; enabled: boolean; status: string };
+type Source = { id: string; name: string; type: string; enabled: boolean; status: string; syncLive?: boolean; syncMovies?: boolean; syncSeries?: boolean; syncEpg?: boolean };
 type Category = { id: string; slug: string; names: Record<string, string> };
 type ChannelItem = { id: string; displayName: string; groupName?: string; normalized?: { logoUrl?: string }; availability?: {status:string;latencyMs?:number|null;circuitOpenUntil?:string|null}; channel: { id: string; status: string; webAvailable: boolean; logoUrl?: string; category: Category } };
 type ChannelGroup = { name: string; value: string; count: number };
@@ -152,7 +152,8 @@ export function ImportManager() {
   async function synchronize() {
     if (!sourceId) return; setBusy('sync'); setMessage('Connexion à la source…');
     try {
-      const start = await adminFetch(`/admin/imports/source/${sourceId}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ scope: ['LIVE'] }) });
+      const scope = [activeSource?.syncLive !== false && 'LIVE', activeSource?.syncMovies && 'MOVIE', activeSource?.syncSeries && 'SERIES', activeSource?.syncEpg && 'EPG'].filter(Boolean);
+      const start = await adminFetch(`/admin/imports/source/${sourceId}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ scope }) });
       const started = await start.json(); if (!start.ok) { setMessage(started.message ?? 'Synchronisation refusée.'); return; }
       await monitorImport(started as ImportJob, sourceId);
     } catch { setMessage('Synchronisation interrompue. Vérifiez la source et réessayez.'); }
