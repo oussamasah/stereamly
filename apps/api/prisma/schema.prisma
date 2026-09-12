@@ -266,6 +266,11 @@ model ImportJob {
   errorCode     String?
   errorDetail   String?
   cancelRequested Boolean          @default(false)
+  workerId       String?
+  heartbeatAt    DateTime?
+  leaseExpiresAt DateTime?
+  checkpoint     Json?
+  processedItems Int               @default(0)
   startedAt     DateTime?
   finishedAt    DateTime?
   createdAt     DateTime           @default(now())
@@ -273,6 +278,7 @@ model ImportJob {
   stagedItems   ImportStagedItem[]
   @@index([sourceId, createdAt])
   @@index([status, createdAt])
+  @@index([status, leaseExpiresAt])
 }
 
 model ImportStagedItem {

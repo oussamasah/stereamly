@@ -25,5 +25,15 @@ npm run dev
 - Liveness : `http://localhost:4000/api/v1/health/live`
 - Readiness PostgreSQL/Redis : `http://localhost:4000/api/v1/health/ready`
 
-Ne jamais utiliser les secrets d’exemple en production.
+## Synchronisations volumineuses en production
 
+Les imports M3U, Xtream et Portal/MAC sont traites par lots et proteges par un lease stocke dans PostgreSQL. Pour un deploiement durable, separer l'API du worker :
+
+- service API : commande `npm run start -w @stream/api`, variable `IMPORT_EXECUTION_MODE=enqueue` ;
+- background worker : commande `npm run start:worker -w @stream/api`, variable `IMPORT_EXECUTION_MODE=worker` ;
+- les deux services partagent les memes `DATABASE_URL`, `REDIS_URL`, `SOURCE_ENCRYPTION_KEY`, `JWT_SECRET` et `TOKEN_PEPPER` ;
+- executer `npm run db:deploy -w @stream/api` avant le premier demarrage.
+
+En local, la valeur par defaut `IMPORT_EXECUTION_MODE=all` conserve l'API et le worker dans un seul processus. Un worker permanent est requis pour les catalogues massifs : un service web suspendu ne peut pas garantir leur achevement.
+
+Ne jamais utiliser les secrets d’exemple en production.
