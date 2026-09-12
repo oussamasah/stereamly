@@ -6,7 +6,7 @@ import { adminFetch } from '../lib/admin-api';
 type Source = { id: string; name: string; type: string; enabled: boolean; status: string; syncLive?: boolean; syncMovies?: boolean; syncSeries?: boolean; syncEpg?: boolean };
 type Category = { id: string; slug: string; names: Record<string, string> };
 type ContentKind='LIVE'|'MOVIE'|'SERIES'|'DOCUMENTARY';
-type ChannelItem = { id: string; kind?: string; displayName: string; groupName?: string; imageUrl?:string|null; status?:string; published?:boolean; normalized?: { logoUrl?: string }; availability?: {status:string;latencyMs?:number|null;circuitOpenUntil?:string|null}; channel: { id: string; status: string; webAvailable: boolean; logoUrl?: string; category: Category };mediaTitle?:{id:string;slug:string;type:string;status:string} };
+type ChannelItem = { id: string; kind?: string; displayName: string; groupName?: string; imageUrl?:string|null; status?:string; published?:boolean; normalized?: { logoUrl?: string; classificationConfidence?:number; classificationReason?:string[]; genres?:string[] }; availability?: {status:string;latencyMs?:number|null;circuitOpenUntil?:string|null}; channel: { id: string; status: string; webAvailable: boolean; logoUrl?: string; category: Category };mediaTitle?:{id:string;slug:string;type:string;status:string} };
 type ChannelGroup = { name: string; value: string; count: number };
 type ChannelPage = { items: ChannelItem[]; total: number; page: number; pageSize: number; pages: number; groups: ChannelGroup[] };
 type ImportJob = { id: string; status: string; progress: number; totalItems?: number; addedItems?: number; updatedItems?: number; removedItems?: number; errorCode?: string | null; errorDetail?: string | null; stagedItems?: { id: string; kind: string; selected: boolean; changeType: string }[] };
@@ -46,7 +46,8 @@ export function ImportManager() {
 
   const loadChannels = useCallback(async (id: string, requestedPage = 1, requestedSearch = '', requestedGroup = '') => {
     if (!id) return;
-    const params = new URLSearchParams({ page: String(requestedPage), pageSize: '80',kind:contentKind==='DOCUMENTARY'?'MOVIE':contentKind });
+    const params = new URLSearchParams({ page: String(requestedPage), pageSize: '80' });
+    if(contentKind!=='DOCUMENTARY')params.set('kind',contentKind);
     if(contentKind==='DOCUMENTARY')params.set('documentary','true');
     if (requestedSearch.trim()) params.set('search', requestedSearch.trim());
     if (requestedGroup) params.set('group', requestedGroup);

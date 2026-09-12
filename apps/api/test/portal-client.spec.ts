@@ -28,5 +28,13 @@ describe('PortalClient',()=>{
   await expect(new PortalClient(policy as never).resolve(source as never,secret,ref)).resolves.toBe(direct);
   expect(fetchMock).not.toHaveBeenCalled();
  });
+ it('imports portal movies and command-less series from their authoritative namespaces',async()=>{
+  const allSource={...source,syncMovies:true,syncSeries:true};
+  vi.stubGlobal('fetch',vi.fn(async(input:URL)=>{const action=input.searchParams.get('action'),type=input.searchParams.get('type');if(action==='handshake')return json({js:{token:'token-1'}});if(action==='get_profile')return json({js:{id:7,status:1}});if(action==='get_genres')return json({js:[{id:'9',title:type==='vod'?'Documentaires Nature':'Drama'}]});if(action==='get_all_channels')return json({js:{data:[]}});if(action==='get_ordered_list'&&type==='itv')return json({js:{data:[],total_items:0,max_page_items:10}});if(action==='get_ordered_list'&&type==='vod')return json({js:{data:[{id:'20',name:'Ocean Film',cmd:'ffmpeg https://cdn.example/movie.mp4',category_id:'9'}],total_items:1,max_page_items:10}});if(action==='get_ordered_list'&&type==='series')return json({js:{data:[{id:'30',name:'Demo Series',category_id:'9'}],total_items:1,max_page_items:10}});return new Response('',{status:404});}));
+  const items=await new PortalClient(policy as never).catalogue(allSource as never,secret);
+  expect(items.map(item=>item.kind)).toEqual(['MOVIE','SERIES']);
+  expect(items[0].genres).toContain('DOCUMENTARY');
+  expect(items[1]).toMatchObject({remoteId:'30',streamRef:undefined,raw:{playbackResolvable:false}});
+ });
 });
 function json(value:unknown){return new Response(JSON.stringify(value),{status:200,headers:{'content-type':'application/json'}})}

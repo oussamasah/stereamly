@@ -14,10 +14,13 @@ export class SourceLibraryController {
  @Get(':id/library')
  async list(@Param('id') sourceId: string, @Query('kind') requestedKind?: string, @Query('documentary') requestedDocumentary?: string, @Query('page') requestedPage?: string, @Query('pageSize') requestedPageSize?: string, @Query('search') requestedSearch?: string, @Query('group') requestedGroup?: string) {
   if (!await this.prisma.sourceAccount.count({ where: { id: sourceId } })) throw new BadRequestException('SOURCE_NOT_FOUND');
-  const kind = (['LIVE', 'MOVIE', 'SERIES'].includes(requestedKind ?? '') ? requestedKind : 'LIVE') as 'LIVE' | 'MOVIE' | 'SERIES';
+  const kind = (['LIVE', 'MOVIE', 'SERIES'].includes(requestedKind ?? '') ? requestedKind : undefined) as 'LIVE' | 'MOVIE' | 'SERIES' | undefined;
   const documentary = requestedDocumentary === 'true', page = Math.max(1, Number(requestedPage) || 1), pageSize = Math.min(150, Math.max(20, Number(requestedPageSize) || 80)), search = requestedSearch?.trim().slice(0, 100), group = requestedGroup?.trim().slice(0, 200);
-  const classification: Prisma.SourceCatalogItemWhereInput = documentary ? { OR: [{ groupName: { contains: 'document', mode: 'insensitive' } }, { displayName: { contains: 'document', mode: 'insensitive' } }] } : {};
-  const base: Prisma.SourceCatalogItemWhereInput = { sourceId, kind, active: true, ...classification };
+  const classification: Prisma.SourceCatalogItemWhereInput = documentary ? { OR: [
+   { normalized: { path: ['genres'], array_contains: ['DOCUMENTARY'] } },
+   ...['document', 'discovery', 'nature', 'history', 'science', 'découverte', 'وثائق'].flatMap(term => ([{ groupName: { contains: term, mode: 'insensitive' as const } }, { displayName: { contains: term, mode: 'insensitive' as const } }])),
+  ] } : {};
+  const base: Prisma.SourceCatalogItemWhereInput = { sourceId, ...(kind ? { kind } : {}), active: true, ...classification };
   const where: Prisma.SourceCatalogItemWhereInput = { ...base, ...(group ? { groupName: group } : {}), ...(search ? { AND: [{ OR: [{ displayName: { contains: search, mode: 'insensitive' } }, { groupName: { contains: search, mode: 'insensitive' } }] }] } : {}) };
   const [items, total, groups] = await this.prisma.$transaction([
    this.prisma.sourceCatalogItem.findMany({ where, select: { id: true, kind: true, displayName: true, groupName: true, normalized: true, channel: { select: { id: true, slug: true, status: true, webAvailable: true, logoUrl: true } }, mediaTitle: { select: { id: true, slug: true, type: true, status: true, images: { where: { type: 'POSTER' }, orderBy: { sortOrder: 'asc' }, take: 1, select: { url: true } } } } }, orderBy: [{ groupName: 'asc' }, { displayName: 'asc' }], skip: (page - 1) * pageSize, take: pageSize }),

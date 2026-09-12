@@ -26,7 +26,8 @@ export class ImportsService implements OnModuleInit,OnModuleDestroy {
     }
     const completed = await this.prisma.importJob.findMany({ where: { status: 'COMPLETED' }, distinct: ['sourceId'], orderBy: { createdAt: 'desc' }, select: { sourceId: true, createdAt: true } });
     for (const job of completed) await this.prisma.importJob.updateMany({ where: { sourceId: job.sourceId, status: 'PREVIEW', createdAt: { lt: job.createdAt } }, data: { status: 'CANCELLED', errorCode: 'IMPORT_SUPERSEDED', errorDetail: 'IMPORT_SUPERSEDED', finishedAt: new Date() } });
-    this.timer=setInterval(()=>void this.dispatchAvailable(),5_000);this.timer.unref();
+    // A temporary database/network outage must not crash the API process. The next tick retries.
+    this.timer=setInterval(()=>void this.dispatchAvailable().catch(()=>undefined),5_000);this.timer.unref();
   }
   onModuleDestroy(){if(this.timer)clearInterval(this.timer);}
   list(sourceId?: string) { return this.prisma.importJob.findMany({ where: sourceId ? { sourceId } : undefined, include: { source: { select: { id: true, name: true, type: true } } }, orderBy: { createdAt: 'desc' }, take: 100 }); }
