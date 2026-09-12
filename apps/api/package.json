@@ -9,9 +9,9 @@
     "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "db:generate": "prisma generate",
-    "db:deploy": "prisma migrate deploy",
-    "db:migrate": "prisma migrate dev"
+    "db:generate": "node scripts/prisma.cjs generate",
+    "db:deploy": "node scripts/prisma.cjs migrate deploy",
+    "db:migrate": "node scripts/prisma.cjs migrate dev"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",
