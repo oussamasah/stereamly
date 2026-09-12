@@ -5,7 +5,8 @@ import { adminFetch } from '../lib/admin-api';
 
 type Source = { id: string; name: string; type: string; enabled: boolean; status: string; syncLive?: boolean; syncMovies?: boolean; syncSeries?: boolean; syncEpg?: boolean };
 type Category = { id: string; slug: string; names: Record<string, string> };
-type ChannelItem = { id: string; displayName: string; groupName?: string; normalized?: { logoUrl?: string }; availability?: {status:string;latencyMs?:number|null;circuitOpenUntil?:string|null}; channel: { id: string; status: string; webAvailable: boolean; logoUrl?: string; category: Category } };
+type ContentKind='LIVE'|'MOVIE'|'SERIES'|'DOCUMENTARY';
+type ChannelItem = { id: string; kind?: string; displayName: string; groupName?: string; imageUrl?:string|null; status?:string; published?:boolean; normalized?: { logoUrl?: string }; availability?: {status:string;latencyMs?:number|null;circuitOpenUntil?:string|null}; channel: { id: string; status: string; webAvailable: boolean; logoUrl?: string; category: Category };mediaTitle?:{id:string;slug:string;type:string;status:string} };
 type ChannelGroup = { name: string; value: string; count: number };
 type ChannelPage = { items: ChannelItem[]; total: number; page: number; pageSize: number; pages: number; groups: ChannelGroup[] };
 type ImportJob = { id: string; status: string; progress: number; totalItems?: number; addedItems?: number; updatedItems?: number; removedItems?: number; errorCode?: string | null; errorDetail?: string | null; stagedItems?: { id: string; kind: string; selected: boolean; changeType: string }[] };
@@ -23,6 +24,7 @@ export function ImportManager() {
   const [sources, setSources] = useState<Source[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [sourceId, setSourceId] = useState('');
+  const [contentKind,setContentKind]=useState<ContentKind>('LIVE');
   const [channels, setChannels] = useState<ChannelItem[]>([]);
   const [channelGroups, setChannelGroups] = useState<ChannelGroup[]>([]);
   const [channelGroup, setChannelGroup] = useState('');
@@ -44,15 +46,16 @@ export function ImportManager() {
 
   const loadChannels = useCallback(async (id: string, requestedPage = 1, requestedSearch = '', requestedGroup = '') => {
     if (!id) return;
-    const params = new URLSearchParams({ page: String(requestedPage), pageSize: '80' });
+    const params = new URLSearchParams({ page: String(requestedPage), pageSize: '80',kind:contentKind==='DOCUMENTARY'?'MOVIE':contentKind });
+    if(contentKind==='DOCUMENTARY')params.set('documentary','true');
     if (requestedSearch.trim()) params.set('search', requestedSearch.trim());
     if (requestedGroup) params.set('group', requestedGroup);
-    const response = await adminFetch(`/admin/sources/${id}/channels?${params}`);
+    const response = await adminFetch(`/admin/sources/${id}/library?${params}`);
     if (!response.ok) { setMessage((await response.json()).message ?? 'Impossible de charger les chaînes.'); return; }
     const result = await response.json() as ChannelPage;
     setChannels(result.items); setChannelGroups(result.groups); setPage(result.page); setPages(result.pages); setTotal(result.total);
     setFocused(current => result.items.find(item => item.id === current?.id) ?? result.items[0] ?? null);
-  }, []);
+  }, [contentKind]);
 
   const monitorImport = useCallback(async (initial: ImportJob, id: string) => {
     const token = ++monitorToken.current;
@@ -141,6 +144,7 @@ export function ImportManager() {
   }, [channels]);
 
   useEffect(() => { failedPreviews.current.clear(); automaticPreviewAttempts.current = 0;automaticPreviewEnabled.current=Boolean(sourceId); }, [sourceId]);
+  useEffect(()=>{setSelected([]);setFocused(null);setChannelGroup('');setPage(1);automaticPreviewEnabled.current=contentKind==='LIVE'&&Boolean(sourceId);},[contentKind,sourceId]);
 
   async function chooseSource(id: string) { monitorToken.current++; failedPreviews.current.clear(); automaticPreviewAttempts.current=0;automaticPreviewEnabled.current=true; setBusy(''); setSourceId(id); setSearch(''); setChannelGroup(''); setSelected([]); setMessage('Recherche du premier aperçu disponible…'); await loadChannels(id); await resumeImport(id); }
   async function changePage(next: number) { if (!sourceId || next < 1 || next > pages) return; await loadChannels(sourceId, next, search, channelGroup); }
@@ -164,24 +168,24 @@ export function ImportManager() {
     if (!selected.length || !rightsConfirmed) return;
     setBusy('publish'); setMessage('Publication en cours…');
     try {
-      const response = await adminFetch(`/admin/sources/${sourceId}/channels/publish`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ itemIds: selected, categoryId: categoryId || undefined, countryCode: countryCode.toUpperCase(), rightsConfirmed }) });
+      const response = await adminFetch(`/admin/sources/${sourceId}/library/publish`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ itemIds: selected, categoryId: contentKind==='LIVE'&&categoryId ? categoryId : undefined, countryCode: countryCode.toUpperCase(), rightsConfirmed }) });
       const result = await response.json();
       if (!response.ok) { setMessage(result.message ?? 'Publication refusée.'); return; }
-      await loadChannels(sourceId, page, search, channelGroup); setRightsConfirmed(false); setMessage(`${result.published} chaîne(s) publiée(s) pour ${countryCode.toUpperCase()}.`);
+      await loadChannels(sourceId, page, search, channelGroup); setRightsConfirmed(false);setSelected([]); setMessage(`${result.published} contenu(s) publié(s) pour ${countryCode.toUpperCase()}.`);
     } catch { setMessage('Publication impossible.'); }
     finally { setBusy(''); }
   }
 
-  return <div className="decoder-shell">
+  return <><nav className="toolbar source-content-tabs" aria-label="Types de contenus">{([['LIVE','Chaînes'],['MOVIE','Films'],['SERIES','Séries'],['DOCUMENTARY','Documentaires']] as [ContentKind,string][]).map(([value,label])=><button key={value} className={`button ${contentKind===value?'':'secondary'}`} onClick={()=>setContentKind(value)}>{label}</button>)}</nav><div className="decoder-shell">
     <aside className="decoder-sources"><div className="decoder-title"><p className="eyebrow">SOURCES</p><h2>Vos décodeurs</h2></div>{sources.map(source => <button className={`decoder-source ${source.id === sourceId ? 'active' : ''}`} key={source.id} onClick={() => chooseSource(source.id)}><span className={`source-dot ${source.enabled ? 'online' : ''}`}/><span><strong>{source.name}</strong><small>{source.type} · {source.status}</small></span><b>›</b></button>)}{!sources.length && <p className="muted">Ajoutez d’abord une source IPTV.</p>}<div className="decoder-groups"><p className="eyebrow">CATÉGORIES</p><button className={!channelGroup ? 'active' : ''} onClick={() => setChannelGroup('')}><span>Toutes les chaînes</span><b>{channelGroups.reduce((sum, group) => sum + group.count, 0).toLocaleString('fr-FR')}</b></button>{channelGroups.map(group => <button className={channelGroup === group.value ? 'active' : ''} key={`${group.value}-${group.name}`} onClick={() => setChannelGroup(group.value)}><span>{group.name}</span><b>{group.count.toLocaleString('fr-FR')}</b></button>)}</div></aside>
     <section className="decoder-list"><div className="decoder-toolbar"><div><p className="eyebrow">CHAÎNES</p><h2>{activeSource?.name ?? 'Sélectionnez une source'}</h2><small>{total.toLocaleString('fr-FR')} chaîne{total > 1 ? 's' : ''}</small></div><button className="button compact" disabled={!activeSource?.enabled || activeSource.status !== 'READY' || !!busy} onClick={synchronize}>{busy === 'sync' ? 'Synchronisation…' : 'Synchroniser'}</button></div><input className="decoder-search" type="search" placeholder="Rechercher une chaîne" value={search} onChange={event => setSearch(event.target.value)}/><label className="decoder-select-all"><input type="checkbox" checked={visible.length > 0 && visible.every(item => selected.includes(item.id))} onChange={toggleAll}/>Sélectionner cette page ({visible.length})</label><div className="decoder-channels">{visible.map(item => <article className={`decoder-channel ${focused?.id === item.id ? 'focused' : ''}`} key={item.id} tabIndex={0} onKeyDown={event => { if (event.key === 'Enter') focusManually(item); }} onClick={() => focusManually(item)}><input aria-label={`Sélectionner ${item.displayName}`} type="checkbox" checked={selected.includes(item.id)} onClick={event => event.stopPropagation()} onChange={() => toggle(item.id)}/><ChannelLogo item={item}/><span><strong>{item.displayName}</strong><small>{item.groupName ?? item.channel.category.names.fr ?? item.channel.category.slug}</small></span><span className={`status status-${item.channel.status.toLowerCase()}`}>{item.channel.status}</span></article>)}{activeSource && !visible.length && <div className="decoder-empty"><span>▦</span><h3>Aucune chaîne trouvée</h3><p>Changez la catégorie ou effacez la recherche.</p></div>}</div><nav className="decoder-pagination" aria-label="Pages des chaînes"><button disabled={page <= 1} onClick={() => changePage(page - 1)}>← Précédent</button><span>Page {page} / {pages}</span><button disabled={page >= pages} onClick={() => changePage(page + 1)}>Suivant →</button></nav></section>
     <aside className="decoder-preview"><ChannelPreview item={focused} onUnavailable={previewUnavailable} onPlayable={previewPlayable}/><div className="decoder-zap"><button disabled={!focused} onClick={() => zap(-1)}>← Chaîne précédente</button><button disabled={!focused} onClick={() => zap(1)}>Chaîne suivante →</button></div><div className="publish-panel"><p className="eyebrow">PUBLICATION</p><h3>{selected.length} sélectionnée{selected.length > 1 ? 's' : ''}</h3><label>Catégorie<select value={categoryId} onChange={event => setCategoryId(event.target.value)}><option value="">Conserver les catégories importées</option>{categories.map(category => <option key={category.id} value={category.id}>{category.names.fr ?? category.slug}</option>)}</select></label><label>Territoire<input value={countryCode} maxLength={3} onChange={event => setCountryCode(event.target.value.toUpperCase())}/><small className="field-hint">ALL ou code pays, par exemple FR.</small></label><label className="rights-check"><input type="checkbox" checked={rightsConfirmed} onChange={event => setRightsConfirmed(event.target.checked)}/><span>Je confirme détenir les droits de diffusion pour ce territoire.</span></label><button className="button" disabled={!selected.length || !rightsConfirmed || !!busy} onClick={publish}>{busy === 'publish' ? 'Publication…' : `Publier ${selected.length || ''} chaîne${selected.length > 1 ? 's' : ''}`}</button><p className="form-status" aria-live="polite">{message}</p></div></aside>
-  </div>;
+  </div></>;
 }
 
 function ChannelLogo({ item }: { item: ChannelItem }) {
   const [failed, setFailed] = useState(false);
-  const logo = item.normalized?.logoUrl ?? item.channel.logoUrl;
+  const logo = item.imageUrl ?? item.normalized?.logoUrl ?? item.channel.logoUrl;
   return <div className="channel-logo">{logo && !failed
     // External IPTV logos are intentionally loaded as-is; the fallback avoids broken image chrome.
     // eslint-disable-next-line @next/next/no-img-element
@@ -195,7 +199,7 @@ function ChannelPreview({ item,onUnavailable,onPlayable }: { item: ChannelItem |
   useEffect(() => {
     let cleanup: (() => void | Promise<void>) | undefined;
     let cancelled = false,settled=false,timeout:number|undefined,media:HTMLVideoElement|null=null;
-    if (!item) return;
+    if (!item || (item.kind&&item.kind !== 'LIVE')) return;
     const playable=()=>{if(cancelled||settled)return;settled=true;if(timeout)window.clearTimeout(timeout);setStatus('');onPlayable(item.id);};
     const unavailable=(text:string,retryable=true)=>{if(cancelled||settled)return;settled=true;if(timeout)window.clearTimeout(timeout);setStatus(text);onUnavailable(item.id,retryable);};
     void (async () => {
@@ -254,5 +258,6 @@ function ChannelPreview({ item,onUnavailable,onPlayable }: { item: ChannelItem |
     })();
     return () => { cancelled = true;if(timeout)window.clearTimeout(timeout);media?.removeEventListener('playing',playable); void cleanup?.(); };
   }, [item,onPlayable,onUnavailable]);
+  if(item?.kind&&item.kind!=='LIVE')return <div className="decoder-screen"><div className="screen-frame media-poster">{item.imageUrl?<img src={item.imageUrl} alt=""/>:<span>STREAMLY</span>}</div><h3>{item.displayName}</h3><p>{item.groupName??'Sans catégorie'}</p><small>{item.published?'Déjà publié':'Prêt à publier'}</small></div>;
   return <div className="decoder-screen"><div className="screen-frame"><video ref={video} controls muted playsInline/>{!item && <span>STREAMLY</span>}</div><h3>{item?.displayName ?? 'Aucune chaîne sélectionnée'}</h3><p>{item?.groupName ?? status}</p>{item && status && <small>{status}</small>}</div>;
 }

@@ -7,7 +7,7 @@ import { useAuth } from './auth-provider';
 const modules = [
   { id: 'catalog', label: 'Catalogue' },
   { id: 'sources', label: 'Sources' },
-  { id: 'imports', label: 'Chaînes' },
+  { id: 'imports', label: 'Bibliothèque' },
   { id: 'epg', label: 'EPG' },
   { id: 'help', label: 'Guide' },
 ] as const;
