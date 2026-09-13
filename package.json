@@ -6,7 +6,9 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build -w @stream/api && npm run build -w @stream/web",
+    "build": "npx nest build",
+    "start": "node dist/main",
+    "start:dev": "nest start --watch",
     "dev": "concurrently -n api,web -c blue,green \"npm run dev -w @stream/api\" \"npm run dev -w @stream/web\"",
     "lint": "npm run lint -w @stream/api && npm run lint -w @stream/web",
     "test": "npm run test -w @stream/api && npm run test -w @stream/web",
