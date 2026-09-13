@@ -169,10 +169,21 @@ function Playback({ binding, target, name, locale, retry }: {
         };
     }, [binding.kind, binding.url, target]);
 
-    return <>
-        <div className="view-player">{binding.kind === 'HLS' ?
-            <video ref={video} controls playsInline preload="metadata" onError={() => setFailed(true)} /> :
-            <iframe src={binding.url} title={name} className="w-full h-full border-0" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowFullScreen referrerPolicy="origin" />}
+   return <>
+        <div className="view-player">
+            {binding.kind === 'HLS' ? (
+                <video ref={video} controls playsInline preload="metadata" onError={() => setFailed(true)} />
+            ) : (
+                <iframe
+                    src={binding.url}
+                    title={name}
+                    className="w-full h-full border-0"
+                    allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+                    allowFullScreen
+                    referrerPolicy="origin"
+                    sandbox="allow-scripts allow-same-origin allow-forms allow-presentation allow-popups allow-popups-to-escape-sandbox"
+                />
+            )}
         </div>
         {failed && <div role="alert"><p>{labels[locale].failed}</p><button onClick={retry}>{labels[locale].retry}</button></div>}
         <p>{binding.label}</p>

@@ -48,7 +48,6 @@ export function Browse({ locale, view }: { locale: Locale; view: View }) {
         {view === 'library' && <><p>{!user ? t.local : libraryStatus === 'synced' ? (locale === 'ar' ? 'تمت مزامنة قائمتك مع حسابك.' : locale === 'fr' ? 'Votre liste est synchronisée avec votre compte.' : 'Your list is synced to your account.') : (locale === 'ar' ? 'محفوظة على هذا الجهاز. المزامنة معلقة.' : locale === 'fr' ? 'Enregistrée sur cet appareil. Synchronisation en attente.' : 'Saved on this device. Sync is pending.')}</p><div className="view-grid view-grid-wide">{library.map(item => <article className="view-tile" key={item.target}><Link href={watchPath(locale, item.target)}><h2>{item.name || <SavedItemName target={item.target} locale={locale} />}</h2>{item.position ? `${Math.floor(item.position / 60)} min` : t.details}</Link><button onClick={() => removeTitle(item.target)}>{t.remove}</button></article>)}</div>{library.length === 0 && <p className="view-empty">{t.empty}</p>}</>}
 
         {view === 'home' && snapshot.data?.collections.map(collection => <section key={collection.id}><h2>{collection.names[locale] || collection.names.en}</h2><div className="view-actions">{collection.targets.map(target => <CollectionItem key={target} target={target} locale={locale} />)}</div></section>)}
-        {needsTitles && <footer className="view-attribution"><a href="https://www.themoviedb.org/" target="_blank" rel="noreferrer">TMDB</a><p>{t.notice}</p></footer>}
     </div>;
 }
 
