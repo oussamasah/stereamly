@@ -169,7 +169,7 @@ export function Player({
             <select
               value={country}
               onChange={(event) =>
-                setCountry(event.target.value)
+                setCountry(event.currentTarget.value)
               }
             >
               <option value="ALL">
@@ -194,9 +194,9 @@ export function Player({
 
             <select
               value={binding?.id || ''}
-              onChange={(event) =>
-                choose(event.target.value)
-              }
+              onChange={(event) => {
+                choose(event.currentTarget.value);
+              }}
             >
               {bindings.map((source) => (
                 <option
@@ -215,7 +215,10 @@ export function Player({
         <div role="alert">
           <p>{t.error}</p>
 
-          <button onClick={platform.retry}>
+          <button
+            type="button"
+            onClick={platform.retry}
+          >
             {t.retry}
           </button>
         </div>
@@ -537,16 +540,11 @@ function Playback({
         className="view-player"
         style={{
           position: 'relative',
-
           width: '100%',
           maxWidth: '1200px',
-
           margin: '0 auto',
-
           overflow: 'hidden',
-
           background: '#000',
-
           borderRadius: '12px',
         }}
       >
@@ -561,13 +559,9 @@ function Playback({
             }
             style={{
               display: 'block',
-
               width: '100%',
-
               aspectRatio: '16 / 9',
-
               background: '#000',
-
               border: 0,
             }}
           />
@@ -606,92 +600,25 @@ function FocusedEmbed({
   url: string;
   name: string;
 }) {
-  const frameRef =
-    useRef<HTMLIFrameElement>(null);
-
-  useEffect(() => {
-    const focusFrame = () => {
-      if (
-        document.visibilityState !==
-        'visible'
-      ) {
-        return;
-      }
-
-      requestAnimationFrame(() => {
-        frameRef.current?.focus();
-      });
-    };
-
-    const handleVisibility = () => {
-      if (
-        document.visibilityState ===
-        'visible'
-      ) {
-        focusFrame();
-      }
-    };
-
-    window.addEventListener(
-      'focus',
-      focusFrame,
-    );
-
-    document.addEventListener(
-      'visibilitychange',
-      handleVisibility,
-    );
-
-    return () => {
-      window.removeEventListener(
-        'focus',
-        focusFrame,
-      );
-
-      document.removeEventListener(
-        'visibilitychange',
-        handleVisibility,
-      );
-    };
-  }, []);
-
   return (
     <div
       style={{
         position: 'relative',
-
         width: '100%',
-
         aspectRatio: '16 / 9',
-
         overflow: 'hidden',
-
         background: '#000',
       }}
     >
       <iframe
-        ref={frameRef}
-
         src={url}
-
         title={name}
-
-        allow="
-          autoplay;
-          fullscreen;
-          picture-in-picture;
-          encrypted-media
-        "
-
+        allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
         allowFullScreen
-
         referrerPolicy="no-referrer"
-
         tabIndex={0}
-
         style={{
           position: 'absolute',
-
           inset: 0,
 
           display: 'block',
@@ -704,8 +631,6 @@ function FocusedEmbed({
           background: '#000',
 
           pointerEvents: 'auto',
-
-          zIndex: 1,
         }}
       />
     </div>
