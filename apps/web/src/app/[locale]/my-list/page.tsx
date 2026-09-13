@@ -1,1 +1,5 @@
-import{notFound}from'next/navigation';import{Header}from'../../../components/header';import{LibraryClient}from'../../../components/library-client';import{isLocale}from'../../../i18n';export default async function MyList({params}:{params:Promise<{locale:string}>}){const{locale}=await params;if(!isLocale(locale))notFound();return <main className="shell"><Header locale={locale}/><LibraryClient locale={locale}/></main>}
+import {notFound} from 'next/navigation';
+import {Header} from '../../../components/header';
+import {Browse} from '../../../features/viewing/browse';
+import {isLocale} from '../../../i18n';
+export default async function Page({params}:{params:Promise<{locale:string}>}){const{locale}=await params;if(!isLocale(locale))notFound();return <main><div className="shell"><Header locale={locale}/></div><Browse locale={locale} view="library"/></main>;}

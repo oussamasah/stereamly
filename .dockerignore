@@ -1,0 +1,16 @@
+.git
+**/node_modules
+**/.next
+**/dist
+**/coverage
+**/*.tsbuildinfo
+**/.env
+**/.env.*
+**/npm-debug.log*
+**/uploads
+.codex
+.agents
+docs/*.png
+
+backups
+**/*.sql.gz

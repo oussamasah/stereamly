@@ -1,1 +1,5 @@
-import{notFound}from'next/navigation';import{Header}from'../../../../components/header';import{MediaDetail}from'../../../../components/media-detail';import{isLocale}from'../../../../i18n';export default async function Movie({params}:{params:Promise<{locale:string;slug:string}>}){const{locale,slug}=await params;if(!isLocale(locale))notFound();return <main><div className="shell"><Header locale={locale}/></div><MediaDetail locale={locale} slug={slug}/></main>}
+import {notFound} from 'next/navigation';
+import {Header} from '../../../../components/header';
+import {TitleDetail} from '../../../../features/viewing/browse';
+import {isLocale} from '../../../../i18n';
+export default async function Page({params}:{params:Promise<{locale:string;slug:string}>}){const{locale,slug}=await params;if(!isLocale(locale)||!/^\d+$/.test(slug))notFound();return <main><div className="shell"><Header locale={locale}/></div><TitleDetail locale={locale} kind="movie" id={slug}/></main>;}

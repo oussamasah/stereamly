@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useState } from 'react';
 import { getMessages, Locale } from '../i18n';
@@ -81,6 +82,7 @@ export function AuthForm({ locale, mode }: { locale: Locale; mode: 'login' | 're
     <label>{t.email}<input name="email" type="email" autoComplete="email" inputMode="email" placeholder="name@example.com" required /></label>
     <label>{t.password}<input name="password" type="password" autoComplete={mode === 'register' ? 'new-password' : 'current-password'} minLength={12} placeholder="••••••••••••" required />{mode === 'register' && <span className="field-hint">{locale === 'en' ? 'Use at least 12 characters.' : locale === 'ar' ? 'استخدم 12 حرفًا على الأقل.' : 'Utilisez au moins 12 caractères.'}</span>}</label>
     <button className="button" disabled={busy}>{busy ? copy.wait : mode === 'register' ? t.create : t.submitLogin}</button>
+    {<div className="view-actions"><Link href={`/${locale}/forgot-password`}>{locale==='ar'?'نسيت كلمة المرور؟':locale==='fr'?'Mot de passe oublié ?':'Forgot password?'}</Link><Link href={`/${locale}/resend-verification`}>{locale==='ar'?'إعادة إرسال التأكيد':locale==='fr'?'Renvoyer la vérification':'Resend verification'}</Link></div>}
     <p className={`form-status ${hasError ? 'error' : ''}`} aria-live="polite">{status}</p>
   </form>;
 }

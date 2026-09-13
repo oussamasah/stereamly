@@ -1,660 +1,447 @@
-je veux créer une plateforme IPTV simple pour le client, avec choix de chaînes ou packs, paiement en ligne, activation automatique, envoi des accès par e-mail et éventuellement lecture directe sur le site. Côté technique, tu disposes de plusieurs sources sous forme d’IP + utilisateur + mot de passe, ou d’URL complètes avec paramètres, et tu veux que toute cette complexité reste cachée côté backend.
+# Streamly Project Description
 
-Voici une description structurée du projet, pensée comme base de cahier des charges pour une plateforme IPTV légale, premium, rapide et administrable depuis un back-office.
+Updated: 2026-09-13
 
-Vision du projet
+Streamly is a full-stack streaming platform for movies, series, live TV and sports. It has a public viewer application, an authenticated account area, and an admin back office for managing sources, imports, users, catalog data, EPG data and playback providers.
 
-La plateforme doit permettre à un client non technique de comprendre l’offre immédiatement, choisir des chaînes ou des packs, payer en ligne, recevoir automatiquement son accès par e-mail et, si souhaité, regarder directement depuis le site.
+The project is a monorepo:
 
-Toute la complexité technique doit rester invisible pour le client : adresses IP, utilisateurs, mots de passe, URL sources, paramètres query, serveurs disponibles, capacité, équilibrage de charge et gestion des flux doivent être administrés depuis le back-office.
+- `apps/web`: Next.js App Router frontend.
+- `apps/api`: NestJS backend API.
+- `apps/api/prisma`: Prisma schema, migrations and seed.
+- `deploy`: production Docker/Caddy configuration.
+- `scripts`: operational smoke checks used by root package scripts.
 
-L’objectif est d’avoir une plateforme qui ressemble davantage à un service de streaming moderne qu’à un panneau IPTV technique.
+## Runtime Architecture
 
-Expérience client
+The frontend is a localized Next.js app with routes under `/:locale`. Supported locales are French, English and Arabic. The web app calls the backend through `NEXT_PUBLIC_API_URL`, which defaults to `http://localhost:4000/api/v1`.
 
-Le parcours doit être extrêmement simple :
+The backend is a NestJS API with a global `/api/v1` prefix. It uses PostgreSQL through Prisma, Redis for infrastructure support, JWT access tokens, refresh cookies, role guards and DTO validation.
 
-Accueil → Choisir une offre → Payer → Abonnement activé → Regarder ou installer sur son appareil
+Core backend modules include:
 
-La page d’accueil présente clairement les bénéfices, les appareils compatibles, les langues disponibles, les catégories de chaînes et les packs.
+- Authentication and account security.
+- Catalog management for channels, movies, series, packages and metadata.
+- Source management for IPTV/M3U/Xtream/Portal-style upstream sources.
+- Import jobs for source catalog ingestion.
+- Playback session creation and gateway streaming.
+- Platform snapshot and public viewing bindings.
+- Provider template management for admin-configured movie/series embed servers.
+- User library, favorites, progress, history and search history.
 
-Le client peut choisir entre deux modes :
+## Public User Experience
 
-Chaînes à la carte
-Il sélectionne ses chaînes individuellement. Le prix se met à jour automatiquement.
+The public site provides:
 
-Packs
-Par exemple Essentiel, Famille, Sport, Premium ou des packs par pays.
+- Home page with discovery rails.
+- Movies page.
+- Series page.
+- Live TV page.
+- Sports page.
+- Search page.
+- Watch page.
+- My List.
+- Account and authentication pages.
 
-Le site doit éviter les termes techniques comme M3U, Xtream, serveur, DNS ou portal dans le parcours principal.
+Movies and series use TMDB metadata in the browser when `NEXT_PUBLIC_TMDB_API_KEY` is configured. A movie route uses the TMDB movie ID. A series route uses the TMDB TV ID, season number and episode number.
 
-Catalogue de chaînes
+The watch route supports:
 
-Chaque chaîne doit avoir au minimum :
+- `/:locale/watch/movie/:id`
+- `/:locale/watch/tv/:id?season=1&episode=1`
+- `/:locale/watch/channel/:id`
+- `/:locale/watch/event/:id`
+- `/:locale/watch/iptv/:encodedUrl`
 
-nom ;
-logo ;
-catégorie ;
-pays ;
-langue ;
-statut actif/inactif ;
-ordre d’affichage ;
-prix individuel ;
-packs associés ;
-source technique ;
-disponibilité web ;
-éventuellement programme TV/EPG.
+For TMDB movie and TV pages, metadata and artwork come from TMDB, while playback URLs come from active admin-managed stream providers.
 
-Le client voit uniquement une interface visuelle propre avec logos, catégories et boutons de sélection.
+For live channels and imported catalog content, playback goes through backend-managed variants and sessions.
 
-Gestion des packs
+## Admin Experience
 
-Depuis le back-office, l’administrateur peut créer autant de packs que nécessaire.
+Admin pages are protected by role-based access. Admin roles include:
 
-Exemple :
+- `CONTENT_MANAGER`
+- `TECHNICAL_ADMIN`
+- `SUPER_ADMIN`
 
-Pack Famille
-Prix : 6,99 €/mois
+`SUPER_ADMIN` can manage users. `TECHNICAL_ADMIN` and `SUPER_ADMIN` can manage technical source/import workflows. Provider management is available to admin roles through `/admin/providers`.
 
-Chaînes :
-- chaîne 1
-- chaîne 2
-- chaîne 3
-- chaîne 4
-...
+Important admin sections:
 
-Il doit être possible de définir :
+- `/admin`: admin dashboard.
+- `/admin/providers`: stream provider template management.
+- `/admin/sources`: IPTV/source vault management.
+- `/admin/imports`: import jobs and source catalog review.
+- `/admin/catalog`: catalog administration.
+- `/admin/epg`: EPG administration.
+- `/admin/users`: user access management for super admins.
+- `/admin/help`: admin guidance page.
 
-prix mensuel ;
-prix 3 mois ;
-prix 6 mois ;
-prix annuel ;
-remise ;
-période d’essai éventuelle ;
-pays disponibles ;
-nombre maximum d’appareils ;
-nombre maximum de connexions simultanées.
-Back-office
+The first administrator can be created with:
 
-Le back-office est le cœur administratif du système.
+```powershell
+npm run admin:bootstrap
+```
 
-Il doit permettre de gérer plusieurs modules.
+The bootstrap script creates an active, verified `SUPER_ADMIN` account and asks for the password interactively so secrets are not stored in source code.
 
-Dashboard
+## Provider Management
 
-Un tableau de bord doit afficher immédiatement :
+Streamly includes an admin-managed provider engine for TMDB movie and series playback. Providers are stored in the `StreamProvider` Prisma model.
 
-Clients actifs
-Nouveaux clients aujourd’hui
-Abonnements expirant bientôt
-Revenu du jour
-Revenu du mois
-Paiements échoués
-Nombre de viewers actuels
-Charge par serveur
-Serveurs indisponibles
-Tickets support ouverts
+Provider fields:
 
-Des graphiques peuvent montrer l’évolution du chiffre d’affaires, du nombre d’abonnés et du taux de renouvellement.
+- `name`: display name shown to admins and users.
+- `slug`: unique stable identifier.
+- `category`: `vod`, `live` or `sports`.
+- `movieTemplate`: movie embed URL template.
+- `tvTemplate`: TV episode embed URL template.
+- `streamUrl`: direct stream URL, usually HLS.
+- `isActive`: controls whether the provider is visible to the player.
+- `rank`: ordering priority.
 
-Gestion des clients
+The public endpoint:
 
-Pour chaque client :
+```text
+GET /api/v1/providers?category=vod
+```
 
-Nom
-E-mail
-Téléphone éventuel
-Pays
-Langue
-Abonnement
-Date de création
-Date d’expiration
-Paiements
-Appareils
-Dernière connexion
-Statut
-
-L’administrateur doit pouvoir suspendre, prolonger, renouveler ou modifier un abonnement.
-
-Gestion des serveurs et sources
-
-Le système doit accepter plusieurs types de sources autorisées :
-
-IP + username + password
-URL complète
-URL avec paramètres query
-API fournisseur
-HLS
-autres formats autorisés
+returns active providers ordered by rank.
 
-Exemple interne :
+The admin CRUD endpoints stay under:
 
-Serveur : FR-01
-Host : example-server.com
-Username : ********
-Password : ********
-Capacité : 500 connexions
-Actives : 287
-Priorité : 1
-Statut : ONLINE
+```text
+/api/v1/admin/providers
+```
 
-Les identifiants techniques ne doivent jamais être visibles dans le navigateur du client.
+The admin provider manager has a two-column interface:
 
-Ils doivent rester côté backend.
+- Left column: quick source creator.
+- Right column: active sources and test bench.
 
-Sécurité des accès serveur
+The quick creator includes presets for:
 
-Les secrets doivent être stockés de manière sécurisée.
+- VidSrc.
+- VidLink.
+- 2Embed.
+- Custom HLS.
 
-Pour les mots de passe récupérables utilisés par ton système, privilégier :
-
-chiffrement au repos ;
-gestionnaire de secrets ;
-clés séparées de la base ;
-rotation périodique ;
-permissions limitées.
+For VOD providers, URL templates support:
 
-Les mots de passe des clients, eux, doivent être hachés avec un algorithme adapté comme Argon2 ou bcrypt.
+- `{id}`: TMDB movie or TV ID.
+- `{s}`: season number.
+- `{e}`: episode number.
 
-Routage automatique
+Example movie template:
 
-Le client ne doit jamais choisir un serveur.
-
-Le système peut automatiquement sélectionner la meilleure source selon :
-
-statut serveur
-nombre de connexions
-charge
-latence
-pays du client
-priorité
-disponibilité de la chaîne
-
-Par exemple :
-
-Server A
-Capacité : 500
-Actifs : 470
-
-Server B
-Capacité : 500
-Actifs : 130
-
-→ nouveau viewer envoyé vers Server B
-
-Cela améliore la stabilité.
-
-Architecture technique recommandée
-
-Une architecture moderne pourrait être :
-
-                   INTERNET
-                       │
-                       ▼
-                  CDN / WAF
-                       │
-                 Load Balancer
-                       │
-              ┌────────┴────────┐
-              ▼                 ▼
-          Frontend          Backend API
-                              │
-             ┌────────────────┼───────────────┐
-             ▼                ▼               ▼
-         PostgreSQL        Redis          Worker Queue
-                                               │
-                          ┌────────────────────┼────────────┐
-                          ▼                    ▼            ▼
-                       Emails             Payments      Monitoring
-
-                               │
-                               ▼
-                       Streaming Layer
-                               │
-                  ┌────────────┼────────────┐
-                  ▼            ▼            ▼
-               Source A     Source B     Source C
-Frontend
-
-Une bonne solution serait par exemple Next.js ou une architecture frontend équivalente.
-
-Le frontend doit être optimisé pour :
-
-mobile ;
-Smart TV via navigateur si nécessaire ;
-tablette ;
-ordinateur.
-
-Les pages publiques doivent être mises en cache autant que possible.
-
-Backend
-
-Le backend peut être développé avec par exemple :
-
-Node.js/NestJS ;
-Laravel ;
-Django ;
-autre framework robuste.
-
-Le backend gère :
-
-authentification
-abonnements
-catalogue
-paiements
-permissions
-routing
-e-mails
-API admin
-sessions
-player
-statistiques
-Base de données
-
-PostgreSQL conviendrait très bien.
-
-Quelques tables principales :
-
-users
-subscriptions
-plans
-channels
-channel_categories
-packages
-package_channels
-servers
-server_credentials
-channel_sources
-payments
-orders
-devices
-sessions
-stream_sessions
-invoices
-coupons
-support_tickets
-audit_logs
-Cache
-
-Redis est utile pour les données temporaires :
-
-sessions
-catalogue
-rate limiting
-état des serveurs
-nombre de connexions
-tokens temporaires
-jobs
-
-Cela réduit fortement la charge sur la base de données.
-
-Paiement
-
-L’architecture de paiement doit utiliser des webhooks.
-
-Le client paie, puis le prestataire confirme le paiement directement au backend.
-
-Client
- ↓
-Paiement
- ↓
-Prestataire paiement
- ↓ webhook sécurisé
-Backend
- ↓
-Abonnement activé
- ↓
-E-mail envoyé
-
-Il ne faut jamais activer un abonnement uniquement parce que le navigateur affiche une page "paiement réussi".
-
-Abonnements
+```text
+https://vidsrc.me/embed/movie/{id}
+```
 
-Le système doit gérer :
+Example TV template:
 
-mensuel
-trimestriel
-semestriel
-annuel
-renouvellement automatique éventuel
-renouvellement manuel
-codes promo
-essai gratuit éventuel
+```text
+https://vidsrc.me/embed/tv/{id}/{s}/{e}
+```
 
-Il faut aussi prévoir :
+The admin test bench uses a test TMDB ID, defaulting to `550`, and renders a preview. Iframe providers are previewed in a sandboxed iframe inside the admin dashboard. HLS providers are previewed with `hls.js` or native browser HLS when available.
 
-active
-pending
-expired
-suspended
-cancelled
-E-mails automatisés
+## Movie And Series Playback
 
-Plusieurs e-mails peuvent être automatiques :
+The public TMDB player is implemented in:
 
-Bienvenue
-Paiement confirmé
-Abonnement activé
-Accès au service
-Expiration dans 7 jours
-Expiration dans 3 jours
-Abonnement expiré
-Renouvellement réussi
-Paiement échoué
-Mot de passe oublié
-Player web
+```text
+apps/web/src/features/viewing/player.tsx
+```
 
-Si tes droits de distribution autorisent la lecture dans le navigateur, le client peut disposer d’un player intégré.
+When the target starts with `tmdb:`, the player fetches active VOD providers from:
 
-Il clique simplement :
+```text
+NEXT_PUBLIC_API_URL + /providers?category=vod
+```
 
-Regarder maintenant
+It then creates selectable playback sources from the stored templates.
 
-Le backend vérifie d’abord :
+For movies:
 
-abonnement valide ?
-chaîne incluse ?
-nombre de connexions autorisé ?
-session valide ?
-source disponible ?
+```text
+tmdb:movie:{id}
+```
 
-Puis il fournit une session de lecture temporaire.
+uses `movieTemplate`.
 
-Il faut éviter d’envoyer une URL permanente contenant tes vrais credentials.
+For TV episodes:
 
-Sessions temporaires
+```text
+tmdb:tv:{id}:s:{season}:e:{episode}
+```
 
-Une architecture plus sécurisée consiste à générer des tokens courts.
+uses `tvTemplate`.
 
-Par exemple :
+The player replaces placeholders and renders either:
 
-/watch/abc123xyz
+- an HLS `<video>` player for `.m3u8` URLs.
+- an iframe embed for provider player URLs.
 
-Ce token peut :
+The public embed iframe intentionally has no `sandbox` attribute because several third-party provider engines fail inside sandboxed frames. It still uses a cross-origin iframe, `allow` permissions, fullscreen support and `referrerPolicy="origin"`.
 
-expirer en quelques minutes
-être lié au compte
-être lié à la chaîne
-être lié à l’appareil
-être révocable
-Gestion des appareils
+Current iframe permissions:
 
-Pour limiter le partage des comptes, le système peut permettre par exemple :
+```text
+autoplay; fullscreen; picture-in-picture; encrypted-media
+```
 
-Pack Essentiel : 1 appareil
-Pack Famille : 3 appareils
-Pack Premium : 5 appareils
+## Live TV Playback
 
-L’utilisateur peut voir dans son compte :
+Live TV content can come from imported sources. Admins configure source accounts in `/admin/sources`.
 
-Samsung TV
-iPhone
-Chrome Windows
-Android TV
+Supported source types include:
 
-et déconnecter un appareil.
+- M3U playlists.
+- Xtream-style accounts.
+- Portal/MAC-style sources.
+- Direct sources.
 
-Performance
+Source credentials and imported stream references are handled server-side. Sensitive stream values are encrypted before storage when they are part of the source/import pipeline.
 
-Pour un site premium, vise idéalement :
+Admins can:
 
-page accueil : < 2 secondes
-API courantes : < 300 ms
-pages catalogue : cache
-images : WebP / AVIF
-CDN : activé
-lazy loading : activé
-compression : Brotli/Gzip
+- create source accounts.
+- upload or reference playlists.
+- test sources.
+- enable or disable sources.
+- import channels.
+- review staged items.
+- publish selected channels.
 
-Évite les animations lourdes et les scripts inutiles.
+Live channels are stored as catalog `Channel` records. Playback variants link channels to playable stream references. The user-facing live guide fetches channels and EPG data, lets users filter by country/language/category/favorites, and opens the selected channel in the player.
 
-CDN
+The secure live player is implemented in:
 
-Les éléments statiques devraient passer par un CDN :
+```text
+apps/web/src/components/secure-player.tsx
+```
 
-logos
-images
-CSS
-JavaScript
-fonts
-pages publiques en cache
+It calls:
 
-La vidéo peut utiliser une infrastructure CDN adaptée si le volume le nécessite.
+```text
+POST /api/v1/playback/sessions
+```
 
-Séparation site / streaming
+The API validates access, selects an enabled playback variant, creates a playback session and returns a manifest URL. The player supports:
 
-C’est particulièrement important.
+- MPEG-TS through `mpegts.js`.
+- HLS through native browser support or `hls.js`.
+- file playback through the native video element.
+- DASH/manifest playback through Shaka Player.
 
-Ne mets pas le streaming lourd sur le même serveur que :
+The player also sends heartbeats, records progress for movies and episodes, and reports basic QoE events.
 
-site
-base de données
-paiements
-admin
-API
+## Sports
 
-Sinon une pointe de viewers peut rendre le paiement ou le back-office inutilisable.
+Sports are represented as events in the platform layer. Events include:
 
-Haute disponibilité
+- title.
+- sport.
+- competition.
+- start and end time.
+- status.
+- published flag.
 
-Pour une plateforme plus mature :
+Published events appear in the public sports experience. A sports event can have a playback binding or provider-managed stream path depending on how admins configure the content.
 
-2+ instances backend
-load balancer
-database backups
-Redis
-monitoring
-health checks
-restart automatique
-réplication éventuelle
+## Catalog Management
 
-Si une instance backend tombe, une autre continue à répondre.
+The backend catalog stores:
 
-Monitoring
+- channels.
+- media titles.
+- movies.
+- series.
+- seasons.
+- episodes.
+- genres.
+- credits.
+- artwork.
+- external IDs.
+- packages and prices.
+- publication status.
 
-Il faut surveiller en permanence :
+Movies and series can exist in two ways:
 
-CPU
-RAM
-disque
-bande passante
-latence
-erreurs HTTP
-paiements échoués
-temps API
-sources offline
-nombre de viewers
-sessions
+- Public TMDB-driven browsing for lightweight movie/series discovery.
+- Imported or admin-managed catalog entities in PostgreSQL.
 
-Tu peux créer des alertes :
+Publication status controls whether catalog content is draft, scheduled, published or archived. Channels also have `webAvailable` and rights/availability metadata.
 
-CPU > 85 %
-serveur source offline
-erreurs > seuil
-paiement indisponible
-base inaccessible
-Logs
+## Library, History And Accounts
 
-Chaque action importante doit être enregistrée :
+Users can register, log in, verify email, reset passwords and maintain account sessions.
 
-connexion client
-paiement
-création abonnement
-modification admin
-activation
-suspension
-changement serveur
-erreur streaming
+Viewer library features include:
 
-Le back-office doit avoir un historique administrateur.
+- favorites.
+- continue watching.
+- playback progress.
+- viewing history.
+- search history.
+- import/export of library data.
 
-Sauvegardes
+Guest/local viewing data can be stored in the browser for the lightweight viewing experience. Signed-in users can synchronize library data through API endpoints.
 
-Prévois :
+## Search And Discovery
 
-backup base quotidien
-backup chiffré
-copie hors serveur principal
-rétention 7 / 30 / 90 jours
-test périodique de restauration
+The web app includes search and browsing experiences for movies, series, channels and user history. TMDB search is available when a public TMDB key is configured. Backend search and library search work against stored catalog and user records.
 
-Une sauvegarde qui n’a jamais été testée n’est pas une vraie garantie de récupération.
+Discovery collections and home rails can be managed by the platform/editorial modules. The home page renders available movies, series, live channels and curated sections based on available data.
 
-Sécurité du site
+## EPG
 
-Minimum recommandé :
+EPG support is provided for live TV. Admins can import XMLTV data, map external channel IDs to internal channels and display program schedules.
 
-HTTPS partout
-WAF
-protection DDoS
-rate limiting
-2FA admin
-CAPTCHA uniquement si nécessaire
-validation des inputs
-protection CSRF/XSS/SQL injection
-permissions par rôle
-tokens expirables
-journalisation des actions admin
-Permissions back-office
+The live guide shows:
 
-Tous les employés ne devraient pas avoir les mêmes droits.
+- current program.
+- next program.
+- 24-hour guide details.
+- stale guide warning when data is old.
 
-Exemple :
+Program reminders are stored for authenticated users.
 
-Super Admin
-Finance
-Support
-Content Manager
-Technical Admin
+## Security Model
 
-Un employé support n’a pas besoin d’accéder aux credentials des serveurs.
+Implemented protections include:
 
-Support client
+- bcrypt password hashing.
+- JWT access tokens.
+- refresh cookies.
+- role-based guards.
+- DTO validation.
+- CORS configuration.
+- Helmet middleware.
+- source credential encryption.
+- source URL policy validation.
+- playback sessions with expiring stream access.
+- admin bootstrap without command-line passwords.
 
-Prévois un centre d’aide très simple :
+Public TMDB provider iframe embeds are not sandboxed in the customer player for compatibility with provider engines. Admin preview iframes stay sandboxed because they are only for quick testing and do not replace the public playback path.
 
-Smart TV
-Android TV
-Android
-iPhone
-ordinateur
-problèmes de paiement
-problèmes de connexion
+## Database
 
-Les guides doivent être illustrés et orientés appareil, pas technologie.
+The Prisma schema is in:
 
-Langues
+```text
+apps/api/prisma/schema.prisma
+```
 
-Je prévoirais dès le début :
+Main model groups:
 
-Français
-العربية
-English
+- identity: `User`, tokens and devices.
+- catalog: `Channel`, `MediaTitle`, `Movie`, `Series`, `Season`, `Episode`, `Genre`, images and credits.
+- source/import: `SourceAccount`, `SourceSecret`, `ImportJob`, staged and imported source items.
+- playback: `PlaybackVariant`, `PlaybackSession`, `VariantHealth`, QoE events.
+- library: favorites, progress, search history and viewer library items.
+- provider engine: `StreamProvider`.
+- live guide: EPG mappings, programs and reminders.
+- commerce foundation: packages, carts, orders, subscriptions and entitlements.
 
-avec véritable support RTL pour l’arabe.
+Seed data is in:
 
-Rentabilité
+```text
+apps/api/prisma/seed.ts
+```
 
-Le back-office doit suivre le revenu moyen par utilisateur :
+It inserts default VOD stream providers.
 
-ARPU = revenu mensuel / clients actifs
+## Development Commands
 
-Et surtout la marge réelle :
+Install dependencies:
 
-Marge = revenus − contenu − streaming − paiement − support − marketing − infrastructure
+```powershell
+npm install
+```
 
-Exemple de dashboard :
+Start local infrastructure:
 
-Clients actifs : 1 240
-ARPU : 7,80 €
-MRR : 9 672 €
-Coûts variables : 3 840 €
-Marge brute : 5 832 €
-Churn : 4,2 %
-Modèle tarifaire
+```powershell
+docker compose up -d
+```
 
-Je garderais deux options :
+Generate Prisma client:
 
-À la carte
+```powershell
+npm run db:generate
+```
 
-1 chaîne : ~1 €
-minimum de commande éventuel
+Apply migrations:
 
-Packs
+```powershell
+npm run db:deploy
+```
 
-Mini
-Standard
-Premium
-Sport
-Famille
-Pays
+Seed default providers:
 
-Les packs devraient être le produit principal car ils augmentent généralement le panier moyen et simplifient le choix.
+```powershell
+node apps/api/scripts/prisma.cjs db seed
+```
 
-Upsell
+Run dev servers:
 
-Exemple :
+```powershell
+npm run dev
+```
 
-Vous avez sélectionné 8 chaînes
-Prix : 8 €
+Run typechecks:
 
-Pour 8,99 €, obtenez le Pack Premium avec 35 chaînes.
+```powershell
+npm run typecheck
+```
 
-Cela peut augmenter le revenu moyen par client.
+Run tests:
 
-Design premium
+```powershell
+npm test
+```
 
-Je viserais un design très simple :
+Build:
 
-fond clair ou sombre premium
-grandes cartes
-logos nets
-beaucoup d’espace
-peu de texte
-navigation simple
-CTA visibles
+```powershell
+npm run build
+```
 
-Menu principal :
+## Production Notes
 
-Accueil
-Chaînes
-Packs
-Comment ça marche
-Aide
-Connexion
+Production deployment uses Docker Compose and Caddy files under `deploy` and `compose.production.yaml`.
 
-Sur mobile, le bouton principal pourrait toujours rester facilement accessible.
+Before production use:
 
-Évolution future
+- set real secrets in `.env.production`.
+- use strong `JWT_SECRET`, `TOKEN_PEPPER` and `SOURCE_ENCRYPTION_KEY`.
+- configure SMTP if email verification/reset flows are required.
+- run database migrations.
+- create a real super admin account.
+- verify provider legality and availability.
+- run full tests and browser smoke checks.
+- confirm CORS and public URLs.
+- back up PostgreSQL and any upload volumes.
 
-La plateforme doit être construite pour pouvoir ajouter ensuite :
+## Current Feature Summary
 
-applications Android/iOS
-application Android TV
-Smart TV
-programme TV
-favoris
-contrôle parental
-profils
-historique
-recommandations
-multi-devices
-affiliation
-revendeurs
-B2B
-API partenaires
-Point essentiel
+Streamly currently provides:
 
-Le système devrait considérer tes serveurs et URL comme des sources internes, jamais comme le produit vendu.
-
-Le client achète :
-
-un accès à des chaînes ou à un pack
-
-et non :
-
-une IP + username + password.
-
-Cette distinction rend l’expérience beaucoup plus premium et protège mieux ton architecture.
-
-Enfin, pour qu’un tel service soit réellement durable et exploitable commercialement, les chaînes et flux distribués doivent être couverts par les droits/licences nécessaires dans les pays où tu vends. Une architecture solide protège contre les pannes et la surcharge, mais pas contre les blocages liés à une distribution non autorisée.
+- Public multilingual streaming interface.
+- TMDB movie and series browsing.
+- Dynamic admin-managed VOD provider templates.
+- Movie and episode playback via active provider templates.
+- Live TV catalog and playback through secured backend sessions.
+- Source vault for IPTV-style upstream sources.
+- M3U upload/import workflows.
+- Channel publishing from imported sources.
+- EPG import and live guide display.
+- Sports event scheduling foundation.
+- User accounts and session security.
+- Admin roles and super-admin user management.
+- Favorites, history and continue-watching data.
+- Search and discovery UI.
+- Docker-based local and production infrastructure.

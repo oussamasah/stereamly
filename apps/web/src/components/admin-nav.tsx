@@ -5,14 +5,15 @@ import { Locale } from '../i18n';
 import { useAuth } from './auth-provider';
 
 const modules = [
-  { id: 'catalog', label: 'Catalogue' },
+  
   { id: 'sources', label: 'Sources' },
+  { id: 'providers', label: 'Serveurs' },
   { id: 'imports', label: 'Bibliothèque' },
-  { id: 'epg', label: 'EPG' },
+  
   { id: 'help', label: 'Guide' },
 ] as const;
 
-export function AdminNav({ locale, current }: { locale: Locale; current?: typeof modules[number]['id'] }) {
+export function AdminNav({ locale, current }: { locale: Locale; current?: typeof modules[number]['id'] | 'catalog' | 'epg' }) {
   const { user } = useAuth();
   const canManageSources = user?.role === 'TECHNICAL_ADMIN' || user?.role === 'SUPER_ADMIN';
   const visibleModules = modules.filter(module => canManageSources || (module.id !== 'sources' && module.id !== 'imports'));

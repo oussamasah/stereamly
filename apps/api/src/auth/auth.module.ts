@@ -3,6 +3,8 @@ import { JwtModule } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { MailService } from './mail.service';
+import { BrowserOriginGuard } from './browser-origin.guard';
 import { AuthGuard } from './auth.guard';
-@Module({ imports: [JwtModule.registerAsync({ inject: [ConfigService], useFactory: (config: ConfigService) => ({ secret: config.getOrThrow('JWT_SECRET') }) })], controllers: [AuthController], providers: [AuthService, AuthGuard], exports: [AuthService, AuthGuard, JwtModule] })
+@Module({ imports: [JwtModule.registerAsync({ inject: [ConfigService], useFactory: (config: ConfigService) => ({ secret: config.getOrThrow('JWT_SECRET') }) })], controllers: [AuthController], providers: [AuthService, AuthGuard, MailService, BrowserOriginGuard], exports: [AuthService, AuthGuard, JwtModule] })
 export class AuthModule {}

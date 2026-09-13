@@ -3,8 +3,8 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "dev": "set \"NEXT_TEST_WASM=1\" && set \"NEXT_TEST_WASM_DIR=../../node_modules/@next/swc-wasm-nodejs\" && next dev --webpack",
-    "build": "set \"NEXT_TEST_WASM=1\" && set \"NEXT_TEST_WASM_DIR=../../node_modules/@next/swc-wasm-nodejs\" && next build --webpack",
+    "dev": "node scripts/next.cjs dev --webpack",
+    "build": "node scripts/next.cjs build --webpack",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",

@@ -28,6 +28,7 @@ jobs:
       REDIS_URL: redis://localhost:6379
       JWT_SECRET: test-secret-that-is-at-least-32-characters
       TOKEN_PEPPER: different-test-pepper-at-least-32-chars
+      SOURCE_ENCRYPTION_KEY: isolated-source-test-key-at-least-32-characters
       WEB_ORIGIN: http://localhost:3000
       NEXT_PUBLIC_API_URL: http://localhost:4000/api/v1
     steps:
@@ -38,6 +39,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run db:generate
-      - run: npm run db:migrate -- --name ci
+      - run: npm run db:deploy
       - run: npm run check
 

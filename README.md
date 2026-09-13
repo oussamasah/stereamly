@@ -1,39 +1,37 @@
-# Streamly Platform
+# Streamly
 
-Socle d’une plateforme internationale de streaming légal. Le projet est organisé en monorepo :
+Streamly is a monorepo streaming platform with:
 
-- `apps/web` : interface Next.js multilingue FR/EN/AR ;
-- `apps/api` : API NestJS, identité, sessions et santé ;
-- `apps/api/prisma` : schéma PostgreSQL et migrations ;
-- `docs` : décisions, sprints et rapports de validation.
+- `apps/web`: Next.js customer and admin interface.
+- `apps/api`: NestJS API, authentication, catalog, playback, imports and admin endpoints.
+- `apps/api/prisma`: PostgreSQL schema, migrations and seed.
+- `deploy`: production Docker/Caddy support.
+- `scripts`: smoke checks and operational helpers referenced by `package.json`.
 
-## Démarrage local
+## Local Setup
 
-Prérequis : Node.js 24, npm et Docker Desktop.
+Prerequisites: Node.js 24, npm and Docker Desktop.
 
 ```powershell
-Copy-Item .env.example .env
+if (!(Test-Path .env)) { Copy-Item .env.example .env }
 docker compose up -d
 npm install
 npm run db:generate
-npm run db:migrate -- --name initial
+npm run db:deploy
+node apps/api/scripts/prisma.cjs db seed
 npm run dev
 ```
 
-- Web : `http://localhost:3000`
-- API : `http://localhost:4000/api/v1`
-- Liveness : `http://localhost:4000/api/v1/health/live`
-- Readiness PostgreSQL/Redis : `http://localhost:4000/api/v1/health/ready`
+- Web: `http://localhost:3000`
+- API: `http://localhost:4000/api/v1`
+- Health: `http://localhost:4000/api/v1/health/live`
 
-## Synchronisations volumineuses en production
+Create the first administrator from an interactive terminal:
 
-Les imports M3U, Xtream et Portal/MAC sont traites par lots et proteges par un lease stocke dans PostgreSQL. Pour un deploiement durable, separer l'API du worker :
+```powershell
+npm run admin:bootstrap
+```
 
-- service API : commande `npm run start -w @stream/api`, variable `IMPORT_EXECUTION_MODE=enqueue` ;
-- background worker : commande `npm run start:worker -w @stream/api`, variable `IMPORT_EXECUTION_MODE=worker` ;
-- les deux services partagent les memes `DATABASE_URL`, `REDIS_URL`, `SOURCE_ENCRYPTION_KEY`, `JWT_SECRET` et `TOKEN_PEPPER` ;
-- executer `npm run db:deploy -w @stream/api` avant le premier demarrage.
+Add `NEXT_PUBLIC_TMDB_API_KEY` to `.env` to enable public movie and series discovery. Add and manage playback providers in `/en/admin/providers`.
 
-En local, la valeur par defaut `IMPORT_EXECUTION_MODE=all` conserve l'API et le worker dans un seul processus. Un worker permanent est requis pour les catalogues massifs : un service web suspendu ne peut pas garantir leur achevement.
-
-Ne jamais utiliser les secrets d’exemple en production.
+See [description.md](description.md) for the full project description and workflows.

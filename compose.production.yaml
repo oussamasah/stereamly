@@ -1,0 +1,124 @@
+name: streamly-production
+x-api-environment: &api-environment
+  NODE_ENV: production
+  API_PORT: 4000
+  WEB_ORIGIN: https://${PUBLIC_DOMAIN:?Set PUBLIC_DOMAIN}
+  DATABASE_URL: postgresql://stream:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/stream_platform?schema=public
+  REDIS_URL: redis://redis:6379
+  JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+  TOKEN_PEPPER: ${TOKEN_PEPPER:?Set TOKEN_PEPPER}
+  SOURCE_ENCRYPTION_KEY: ${SOURCE_ENCRYPTION_KEY:?Set SOURCE_ENCRYPTION_KEY}
+  TRUST_PROXY_HOPS: 1
+  SMTP_HOST: ${SMTP_HOST:?Set SMTP_HOST}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_USER: ${SMTP_USER:?Set SMTP_USER}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:?Set SMTP_PASSWORD}
+  EMAIL_FROM: ${EMAIL_FROM:?Set EMAIL_FROM}
+  FREE_ACCESS_ENABLED: ${FREE_ACCESS_ENABLED:-true}
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: stream_platform
+      POSTGRES_USER: stream
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes: ["production-postgres:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stream -d stream_platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    volumes: ["production-redis:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  migrate:
+    image: streamly-api:${RELEASE_TAG:-local}
+    build: {context: ., dockerfile: apps/api/Dockerfile}
+    command: ["node", "scripts/prisma.cjs", "migrate", "deploy"]
+    environment: *api-environment
+    depends_on:
+      postgres: {condition: service_healthy}
+    restart: "no"
+  api:
+    image: streamly-api:${RELEASE_TAG:-local}
+    build: {context: ., dockerfile: apps/api/Dockerfile}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    environment:
+      <<: *api-environment
+      IMPORT_EXECUTION_MODE: enqueue
+    volumes: ["production-uploads:/app/apps/api/uploads"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/api/v1/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+  worker:
+    image: streamly-api:${RELEASE_TAG:-local}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    command: ["node", "dist/worker.js"]
+    environment:
+      <<: *api-environment
+      IMPORT_EXECUTION_MODE: worker
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+  web:
+    image: streamly-web:${RELEASE_TAG:-local}
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: /api/v1
+        NEXT_PUBLIC_TMDB_API_KEY: ${NEXT_PUBLIC_TMDB_API_KEY:?Set NEXT_PUBLIC_TMDB_API_KEY}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/en').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+  edge:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment: {PUBLIC_DOMAIN: "${PUBLIC_DOMAIN:?Set PUBLIC_DOMAIN}"}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - production-caddy:/data
+      - production-caddy-config:/config
+    depends_on:
+      api: {condition: service_healthy}
+      web: {condition: service_healthy}
+volumes:
+  production-postgres:
+  production-redis:
+  production-uploads:
+  production-caddy:
+  production-caddy-config:

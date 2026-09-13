@@ -10,13 +10,10 @@ import { AuthModule } from './auth/auth.module';
 import { HealthController } from './health/health.controller';
 import { randomUUID } from 'node:crypto';
 import { CatalogModule } from './catalog/catalog.module';
-import { MediaModule } from './media/media.module';
 import { SourcesModule } from './sources/sources.module';
 import { ImportsModule } from './imports/imports.module';
-import { EditorialModule } from './editorial/editorial.module';
 import { DiscoveryModule } from './discovery/discovery.module';
-import { PlaybackModule } from './playback/playback.module';
-import { CommerceModule } from './commerce/commerce.module';
-import { EpgModule } from './epg/epg.module';
-@Module({ imports: [ConfigModule.forRoot({ isGlobal: true, envFilePath: ['../../.env', '.env'], validate: validateEnv }), ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]), LoggerModule.forRoot({ pinoHttp: { redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers.set-cookie', '*.password', '*.token', '*.secret', '*.username', '*.macAddress', '*.deviceId', '*.signature'], genReqId: (req) => String(req.headers['x-request-id'] ?? randomUUID()) } }), PrismaModule, RedisModule, AuthModule, CatalogModule, MediaModule, SourcesModule, ImportsModule, EditorialModule, DiscoveryModule, CommerceModule, EpgModule, PlaybackModule], controllers: [HealthController], providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }] })
+import { PlatformModule } from './platform/platform.module';
+import { ProvidersModule } from './providers/providers.module';
+@Module({ imports: [ConfigModule.forRoot({ isGlobal: true, envFilePath: ['../../.env', '.env'], validate: validateEnv }), ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]), LoggerModule.forRoot({ pinoHttp: { redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers.set-cookie', '*.password', '*.token', '*.secret', '*.username', '*.macAddress', '*.deviceId', '*.signature'], genReqId: (req) => String(req.headers['x-request-id'] ?? randomUUID()) } }), PrismaModule, RedisModule, AuthModule, CatalogModule, SourcesModule, ImportsModule, DiscoveryModule, PlatformModule, ProvidersModule], controllers: [HealthController], providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }] })
 export class AppModule {}

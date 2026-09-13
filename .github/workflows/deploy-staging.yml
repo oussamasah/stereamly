@@ -1,4 +1,4 @@
-name: Deploy staging
+name: Build staging images
 on:
   workflow_dispatch:
 jobs:
@@ -24,7 +24,11 @@ jobs:
           REPOSITORY: streamly-${{ matrix.app }}
           IMAGE_TAG: ${{ github.sha }}
           NEXT_PUBLIC_API_URL: ${{ vars.STAGING_PUBLIC_API_URL }}
-        run: docker build --build-arg NEXT_PUBLIC_API_URL="$NEXT_PUBLIC_API_URL" -f apps/${{ matrix.app }}/Dockerfile -t "$REGISTRY/$REPOSITORY:$IMAGE_TAG" . && docker push "$REGISTRY/$REPOSITORY:$IMAGE_TAG"
-      - name: Trigger ECS rolling deployment
-        run: aws ecs update-service --cluster streamly-staging --service streamly-${{ matrix.app }} --force-new-deployment
-
+          NEXT_PUBLIC_TMDB_API_KEY: ${{ vars.STAGING_TMDB_API_KEY }}
+        run: docker build --build-arg NEXT_PUBLIC_API_URL="$NEXT_PUBLIC_API_URL" --build-arg NEXT_PUBLIC_TMDB_API_KEY="$NEXT_PUBLIC_TMDB_API_KEY" -f apps/${{ matrix.app }}/Dockerfile -t "$REGISTRY/$REPOSITORY:$IMAGE_TAG" . && docker push "$REGISTRY/$REPOSITORY:$IMAGE_TAG"
+      - name: Record immutable image for deployment
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          APP: ${{ matrix.app }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: echo "$REGISTRY/streamly-$APP:$IMAGE_TAG" >> "$GITHUB_STEP_SUMMARY"

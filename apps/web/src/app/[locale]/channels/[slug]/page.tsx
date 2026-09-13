@@ -1,1 +1,2 @@
-import{notFound}from'next/navigation';import{Header}from'../../../../components/header';import{ChannelDetail}from'../../../../components/channel-detail';import{isLocale}from'../../../../i18n';export default async function Channel({params}:{params:Promise<{locale:string;slug:string}>}){const{locale,slug}=await params;if(!isLocale(locale))notFound();return <main className="shell"><Header locale={locale}/><ChannelDetail locale={locale} slug={slug}/></main>}
+import {redirect} from 'next/navigation';
+export default async function Page({params}:{params:Promise<{locale:string}>}){const{locale}=await params;redirect(`/${locale}/channels`);}

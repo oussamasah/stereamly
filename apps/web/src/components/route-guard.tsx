@@ -11,7 +11,8 @@ export function RouteGuard({ children, locale, admin = false }: { children: Reac
   const pathname = usePathname();
   const role = user?.role ?? '';
   const technicalPage = /\/admin\/(sources|imports)(?:\/|$)/.test(pathname);
-  const permitted = adminRoles.has(role) && (!technicalPage || role === 'TECHNICAL_ADMIN' || role === 'SUPER_ADMIN');
+  const superPage = /\/admin\/users(?:\/|$)/.test(pathname);
+  const permitted = (!superPage || role === 'SUPER_ADMIN') && adminRoles.has(role) && (!technicalPage || role === 'TECHNICAL_ADMIN' || role === 'SUPER_ADMIN');
   const forbidden = status === 'authenticated' && admin && !permitted;
 
   useEffect(() => {

@@ -1,5 +1,6 @@
 'use client';
 
+import { setLibraryAccount } from '../features/viewing/library';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 export type AuthUser = {
@@ -59,10 +60,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const apply = useCallback((session: Session | null) => {
     if (session) {
       sessionStorage.setItem('accessToken', session.accessToken);
+      sessionStorage.setItem('streamly.userId', session.user.id);
+      setLibraryAccount(session.user.id);
       setUser(session.user);
       setStatus('authenticated');
     } else {
       sessionStorage.removeItem('accessToken');
+      sessionStorage.removeItem('streamly.userId');
+      setLibraryAccount(null);
       setUser(null);
       setStatus('anonymous');
     }
