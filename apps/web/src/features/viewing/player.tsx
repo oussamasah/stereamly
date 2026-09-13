@@ -15,6 +15,7 @@ type StreamProvider = {
     tvTemplate?: string | null;
     streamUrl?: string | null;
     rank: number;
+     sandboxed?: boolean;
 };
 
 export function Player({ locale, target }: { locale: Locale; target: string }) {
@@ -97,15 +98,16 @@ function providerTemplateBindings(target: string, providers: StreamProvider[] | 
         const template = type === 'movie' ? provider.movieTemplate : provider.tvTemplate;
         const url = resolveTemplate(template || provider.streamUrl, id, season || '1', episode || '1');
         if (!url) return [];
-        return [{
-            id: `provider-${provider.slug}`,
-            target,
-            label: provider.name,
-            kind: /\.m3u8($|[?#])/i.test(url) ? 'HLS' as const : 'EMBED' as const,
-            url,
-            countries: ['ALL'],
-            expiresAt: '2999-12-31T23:59:59.000Z',
-        }];
+       return [{
+  id: `provider-${provider.slug}`,
+  target,
+  label: provider.name,
+  kind: /\.m3u8($|[?#])/i.test(url) ? 'HLS' as const : 'EMBED' as const,
+  url,
+  countries: ['ALL'],
+  expiresAt: '2999-12-31T23:59:59.000Z',
+  sandboxed: provider.sandboxed !== false,
+}];
     });
 }
 
@@ -171,19 +173,25 @@ function Playback({ binding, target, name, locale, retry }: {
 
    return <>
         <div className="view-player">
-            {binding.kind === 'HLS' ? (
-                <video ref={video} controls playsInline preload="metadata" onError={() => setFailed(true)} />
-            ) : (
-                <iframe
-                    src={binding.url}
-                    title={name}
-                    className="w-full h-full border-0"
-                    allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-                    allowFullScreen
-                    referrerPolicy="origin"
-                    sandbox="allow-scripts allow-same-origin allow-forms allow-presentation allow-popups allow-popups-to-escape-sandbox"
-                />
-            )}
+          {binding.kind === 'HLS' ? (
+  <video
+    ref={video}
+    controls
+    playsInline
+    preload="metadata"
+    onError={() => setFailed(true)}
+  />
+) : (
+<iframe
+  src={binding.url}
+  title={name}
+  className="w-full h-full border-0"
+  allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+  allowFullScreen
+  referrerPolicy="no-referrer"
+  sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"
+/>
+)}
         </div>
         {failed && <div role="alert"><p>{labels[locale].failed}</p><button onClick={retry}>{labels[locale].retry}</button></div>}
         <p>{binding.label}</p>
