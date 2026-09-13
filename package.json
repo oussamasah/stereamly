@@ -13,24 +13,19 @@
     "typecheck": "npm run typecheck -w @stream/api && npm run typecheck -w @stream/web",
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "admin:bootstrap": "node apps/api/scripts/bootstrap-admin.cjs",
-    "db:generate": "npx prisma generate --schema=apps/api/prisma/schema.prisma",
-    "db:deploy": "npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma",
-    "db:migrate": "npx prisma migrate dev --schema=apps/api/prisma/schema.prisma",
+    "db:generate": "npm run db:generate -w @stream/api",
+    "db:deploy": "npm run db:deploy -w @stream/api",
+    "db:migrate": "npm run db:migrate -w @stream/api",
     "inspect:media": "node scripts/inspect-media.mjs",
     "production:preflight": "node scripts/production-preflight.cjs"
   },
   "devDependencies": {
+    "@nestjs/cli": "^11.0.10",
+    "typescript": "^5.9.2",
     "concurrently": "^9.2.1",
-    "playwright": "^1.63.0",
-    "prisma": "^6.12.0"
+    "playwright": "^1.63.0"
   },
   "engines": {
-    "node": ">=22"
-  },
-  "overrides": {
-    "multer": "2.3.0",
-    "@nestjs/platform-express": {
-      "multer": "2.3.0"
-    }
+    "node": "22.x"
   }
 }
