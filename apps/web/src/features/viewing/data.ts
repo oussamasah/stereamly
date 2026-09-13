@@ -1,15 +1,13 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 export type Binding = {
-  id: string;
-  target: string;
-  label: string;
-  kind: 'HLS' | 'EMBED';
-  url: string;
-  countries: string[];
-  expiresAt: string;
-
-  sandboxed?: boolean;
+    id: string;
+    target: string;
+    label: string;
+    kind: 'HLS' | 'YOUTUBE' | 'VIMEO' | 'EMBED';
+    url: string;
+    countries: string[];
+    expiresAt: string;
 };
 export type SportEvent = {
     id: string;

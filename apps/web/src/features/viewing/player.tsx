@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
 
 import { Locale } from '../../i18n';
+
 import {
   available,
   Binding,
@@ -29,17 +30,9 @@ type StreamProvider = {
   streamUrl?: string | null;
 
   rank: number;
-
-  /**
-   * true  = render inside sandboxed iframe
-   * false = do NOT iframe it; open externally instead
-   */
-  sandboxed?: boolean;
 };
 
-type PlayerBinding = Binding & {
-  sandboxed?: boolean;
-};
+type PlayerBinding = Binding;
 
 export function Player({
   locale,
@@ -49,6 +42,7 @@ export function Player({
   target: string;
 }) {
   const t = labels[locale];
+
   const now = useNow();
   const platform = usePlatform();
 
@@ -124,19 +118,21 @@ export function Player({
       Date.parse(event.endsAt) > now
     );
 
-  const needsPlatform = !['tmdb', 'iptv'].includes(parts[0]);
+  const needsPlatform =
+    !['tmdb', 'iptv'].includes(parts[0]);
 
   useEffect(() => {
     try {
-      const preferred = window.localStorage.getItem(
-        preferenceKey(target),
-      );
+      const preferred =
+        window.localStorage.getItem(
+          preferenceKey(target),
+        );
 
       if (preferred) {
         setSelected(preferred);
       }
     } catch {
-      // Ignore localStorage failures.
+      // Ignore localStorage errors.
     }
   }, [target]);
 
@@ -149,7 +145,7 @@ export function Player({
         value,
       );
     } catch {
-      // Ignore storage failures.
+      // Ignore localStorage errors.
     }
   };
 
@@ -163,7 +159,9 @@ export function Player({
           {' · '}
           {event.status}
           {' · '}
-          {new Date(event.startsAt).toLocaleString(locale)}
+          {new Date(
+            event.startsAt,
+          ).toLocaleString(locale)}
         </p>
       )}
 
@@ -175,7 +173,9 @@ export function Player({
             <select
               value={country}
               onChange={(event) =>
-                setCountry(event.target.value)
+                setCountry(
+                  event.target.value,
+                )
               }
             >
               <option value="ALL">
@@ -183,7 +183,10 @@ export function Player({
               </option>
 
               {countries.map((item) => (
-                <option key={item} value={item}>
+                <option
+                  key={item}
+                  value={item}
+                >
                   {item}
                 </option>
               ))}
@@ -198,27 +201,34 @@ export function Player({
             <select
               value={binding?.id || ''}
               onChange={(event) =>
-                choose(event.target.value)
+                choose(
+                  event.target.value,
+                )
               }
             >
-              {bindings.map((source) => (
-                <option
-                  key={source.id}
-                  value={source.id}
-                >
-                  {source.label}
-                </option>
-              ))}
+              {bindings.map(
+                (source) => (
+                  <option
+                    key={source.id}
+                    value={source.id}
+                  >
+                    {source.label}
+                  </option>
+                ),
+              )}
             </select>
           </label>
         )}
       </div>
 
-      {needsPlatform && platform.error ? (
+      {needsPlatform &&
+      platform.error ? (
         <div role="alert">
           <p>{t.error}</p>
 
-          <button onClick={platform.retry}>
+          <button
+            onClick={platform.retry}
+          >
             {t.retry}
           </button>
         </div>
@@ -232,7 +242,9 @@ export function Player({
         <Playback
           key={`${binding.id}-${attempt}`}
           retry={() =>
-            setAttempt((value) => value + 1)
+            setAttempt(
+              (value) => value + 1,
+            )
           }
           binding={binding}
           target={target}
@@ -248,8 +260,11 @@ export function Player({
   );
 }
 
-function preferenceKey(target: string) {
-  const [source, type] = target.split(':');
+function preferenceKey(
+  target: string,
+) {
+  const [source, type] =
+    target.split(':');
 
   return `streamly:preferred-source:${source}:${type || 'direct'}`;
 }
@@ -257,13 +272,15 @@ function preferenceKey(target: string) {
 function publicDirectBindings(
   target: string,
 ): PlayerBinding[] {
-  const [type, id] = target.split(':');
+  const [type, id] =
+    target.split(':');
 
   if (type !== 'iptv') {
     return [];
   }
 
-  const url = decodeIptvUrl(id);
+  const url =
+    decodeIptvUrl(id);
 
   if (!url) {
     return [];
@@ -285,7 +302,9 @@ function publicDirectBindings(
 
 function providerTemplateBindings(
   target: string,
-  providers: StreamProvider[] | undefined,
+  providers:
+    | StreamProvider[]
+    | undefined,
 ): PlayerBinding[] {
   const [
     source,
@@ -299,33 +318,42 @@ function providerTemplateBindings(
 
   if (
     source !== 'tmdb' ||
-    !['movie', 'tv'].includes(type) ||
+    !['movie', 'tv'].includes(
+      type,
+    ) ||
     !providers
   ) {
     return [];
   }
 
-  return providers
-    .sort((a, b) => a.rank - b.rank)
+  return [...providers]
+    .sort(
+      (a, b) =>
+        a.rank - b.rank,
+    )
     .flatMap((provider) => {
       const template =
         type === 'movie'
           ? provider.movieTemplate
           : provider.tvTemplate;
 
-      const url = resolveTemplate(
-        template || provider.streamUrl,
-        id,
-        season || '1',
-        episode || '1',
-      );
+      const url =
+        resolveTemplate(
+          template ||
+            provider.streamUrl,
+          id,
+          season || '1',
+          episode || '1',
+        );
 
       if (!url) {
         return [];
       }
 
       const isHls =
-        /\.m3u8($|[?#])/i.test(url);
+        /\.m3u8($|[?#])/i.test(
+          url,
+        );
 
       return [
         {
@@ -338,20 +366,21 @@ function providerTemplateBindings(
             : ('EMBED' as const),
 
           url,
+
           countries: ['ALL'],
 
           expiresAt:
             '2999-12-31T23:59:59.000Z',
-
-          sandboxed:
-            provider.sandboxed !== false,
         },
       ];
     });
 }
 
 function resolveTemplate(
-  template: string | null | undefined,
+  template:
+    | string
+    | null
+    | undefined,
   id: string,
   season: string,
   episode: string,
@@ -367,18 +396,26 @@ function resolveTemplate(
     )
     .replaceAll(
       '{s}',
-      encodeURIComponent(season),
+      encodeURIComponent(
+        season,
+      ),
     )
     .replaceAll(
       '{e}',
-      encodeURIComponent(episode),
+      encodeURIComponent(
+        episode,
+      ),
     );
 
   try {
-    const parsed = new URL(url);
+    const parsed =
+      new URL(url);
 
     if (
-      !['http:', 'https:'].includes(
+      ![
+        'http:',
+        'https:',
+      ].includes(
         parsed.protocol,
       )
     ) {
@@ -405,14 +442,18 @@ function Playback({
   locale: Locale;
 }) {
   const video =
-    useRef<HTMLVideoElement>(null);
+    useRef<HTMLVideoElement>(
+      null,
+    );
 
-  const currentName = useRef(name);
+  const currentName =
+    useRef(name);
 
   const [failed, setFailed] =
     useState(false);
 
-  const library = useLibrary();
+  const library =
+    useLibrary();
 
   const resume = useRef(
     library.find(
@@ -422,35 +463,52 @@ function Playback({
   );
 
   useEffect(() => {
-    currentName.current = name;
+    currentName.current =
+      name;
   }, [name]);
 
   useEffect(() => {
     setFailed(false);
-  }, [binding.id, binding.url]);
+  }, [
+    binding.id,
+    binding.url,
+  ]);
 
   useEffect(() => {
     if (
-      binding.kind !== 'HLS' ||
+      binding.kind !==
+        'HLS' ||
       !video.current
     ) {
       return;
     }
 
-    const element = video.current;
-    let hls: Hls | undefined;
+    const element =
+      video.current;
+
+    let hls:
+      | Hls
+      | undefined;
 
     if (
       element.canPlayType(
         'application/vnd.apple.mpegurl',
       )
     ) {
-      element.src = binding.url;
-    } else if (Hls.isSupported()) {
+      element.src =
+        binding.url;
+    } else if (
+      Hls.isSupported()
+    ) {
       hls = new Hls();
 
-      hls.loadSource(binding.url);
-      hls.attachMedia(element);
+      hls.loadSource(
+        binding.url,
+      );
+
+      hls.attachMedia(
+        element,
+      );
 
       hls.on(
         Hls.Events.ERROR,
@@ -502,12 +560,13 @@ function Playback({
       try {
         saveTitle({
           target,
-          name: currentName.current,
+          name:
+            currentName.current,
           position:
             element.currentTime,
         });
       } catch {
-        // Ignore storage errors.
+        // Ignore storage failures.
       }
     };
 
@@ -529,7 +588,10 @@ function Playback({
 
       hls?.destroy();
 
-      element.removeAttribute('src');
+      element.removeAttribute(
+        'src',
+      );
+
       element.load();
     };
   }, [
@@ -541,7 +603,8 @@ function Playback({
   return (
     <>
       <div className="view-player">
-        {binding.kind === 'HLS' ? (
+        {binding.kind ===
+        'HLS' ? (
           <video
             ref={video}
             controls
@@ -551,13 +614,8 @@ function Playback({
               setFailed(true)
             }
           />
-        ) : binding.sandboxed !== false ? (
-          <SandboxedEmbed
-            url={binding.url}
-            name={name}
-          />
         ) : (
-          <ExternalEmbed
+          <FocusedEmbed
             url={binding.url}
             name={name}
           />
@@ -567,100 +625,321 @@ function Playback({
       {failed && (
         <div role="alert">
           <p>
-            {labels[locale].failed}
+            {
+              labels[locale]
+                .failed
+            }
           </p>
 
-          <button onClick={retry}>
-            {labels[locale].retry}
+          <button
+            onClick={retry}
+          >
+            {
+              labels[locale]
+                .retry
+            }
           </button>
         </div>
       )}
 
-      <p>{binding.label}</p>
+      <p>
+        {binding.label}
+      </p>
     </>
   );
 }
 
-function SandboxedEmbed({
+/**
+ * Unsandboxed embed for providers
+ * that refuse iframe sandboxing.
+ *
+ * Important:
+ * Cross-origin iframe scripts cannot
+ * be intercepted by React.
+ *
+ * This component therefore:
+ *
+ * - keeps provider inside the iframe
+ * - removes sandbox
+ * - restores iframe focus when possible
+ * - detects page/tab focus changes
+ * - requires explicit activation
+ * - re-locks interaction after leaving player
+ */
+function FocusedEmbed({
   url,
   name,
 }: {
   url: string;
   name: string;
 }) {
-  return (
-    <iframe
-      src={url}
-      title={name}
-      className="w-full h-full border-0"
-      allow="
-        autoplay;
-        fullscreen;
-        picture-in-picture;
-        encrypted-media
-      "
-      allowFullScreen
-      referrerPolicy="no-referrer"
-
-      /*
-       * Intentionally NOT granted:
-       *
-       * allow-popups
-       * allow-popups-to-escape-sandbox
-       * allow-top-navigation
-       * allow-top-navigation-by-user-activation
-       *
-       * That prevents the embedded page
-       * from navigating your Streamly page
-       * or freely spawning new windows.
-       */
-      sandbox="
-        allow-scripts
-        allow-forms
-        allow-presentation
-      "
-    />
-  );
-}
-
-function ExternalEmbed({
-  url,
-  name,
-}: {
-  url: string;
-  name: string;
-}) {
-  const openPlayer = () => {
-    const opened = window.open(
-      url,
-      '_blank',
-      'noopener,noreferrer',
+  const frameRef =
+    useRef<HTMLIFrameElement>(
+      null,
     );
 
-    if (!opened) {
-      alert(
-        'The player window was blocked by your browser. Please allow popups for this site.',
-      );
+  const containerRef =
+    useRef<HTMLDivElement>(
+      null,
+    );
+
+  const [active, setActive] =
+    useState(false);
+
+  const focusPlayer = () => {
+    if (
+      document.visibilityState !==
+      'visible'
+    ) {
+      return;
     }
+
+    requestAnimationFrame(() => {
+      frameRef.current?.focus();
+    });
   };
 
+  useEffect(() => {
+    let timer1:
+      | ReturnType<
+          typeof setTimeout
+        >
+      | undefined;
+
+    let timer2:
+      | ReturnType<
+          typeof setTimeout
+        >
+      | undefined;
+
+    let timer3:
+      | ReturnType<
+          typeof setTimeout
+        >
+      | undefined;
+
+    const restoreFocus = () => {
+      if (
+        document.visibilityState !==
+        'visible'
+      ) {
+        return;
+      }
+
+      window.focus();
+
+      focusPlayer();
+    };
+
+    const handleWindowFocus =
+      () => {
+        if (!active) {
+          return;
+        }
+
+        restoreFocus();
+      };
+
+    const handleWindowBlur =
+      () => {
+        if (!active) {
+          return;
+        }
+
+        timer1 = setTimeout(
+          restoreFocus,
+          50,
+        );
+
+        timer2 = setTimeout(
+          restoreFocus,
+          250,
+        );
+
+        timer3 = setTimeout(
+          restoreFocus,
+          750,
+        );
+      };
+
+    const handleVisibility =
+      () => {
+        if (
+          !active ||
+          document.visibilityState !==
+            'visible'
+        ) {
+          return;
+        }
+
+        restoreFocus();
+      };
+
+    window.addEventListener(
+      'focus',
+      handleWindowFocus,
+    );
+
+    window.addEventListener(
+      'blur',
+      handleWindowBlur,
+    );
+
+    document.addEventListener(
+      'visibilitychange',
+      handleVisibility,
+    );
+
+    return () => {
+      window.removeEventListener(
+        'focus',
+        handleWindowFocus,
+      );
+
+      window.removeEventListener(
+        'blur',
+        handleWindowBlur,
+      );
+
+      document.removeEventListener(
+        'visibilitychange',
+        handleVisibility,
+      );
+
+      if (timer1) {
+        clearTimeout(timer1);
+      }
+
+      if (timer2) {
+        clearTimeout(timer2);
+      }
+
+      if (timer3) {
+        clearTimeout(timer3);
+      }
+    };
+  }, [active]);
+
+  const activatePlayer =
+    () => {
+      setActive(true);
+
+      requestAnimationFrame(
+        () => {
+          frameRef.current?.focus();
+        },
+      );
+    };
+
+  const deactivatePlayer =
+    () => {
+      setActive(false);
+    };
+
   return (
-    <div className="external-player">
-      <div className="external-player__content">
-        <h2>{name}</h2>
+    <div
+      ref={containerRef}
+      className="relative h-full w-full overflow-hidden bg-black"
+      onMouseLeave={
+        deactivatePlayer
+      }
+    >
+      <iframe
+        ref={frameRef}
+        src={url}
+        title={name}
+        className="h-full w-full border-0"
+        allow="
+          autoplay;
+          fullscreen;
+          picture-in-picture;
+          encrypted-media
+        "
+        allowFullScreen
+        referrerPolicy="no-referrer"
+        tabIndex={0}
+        style={{
+          width: '100%',
+          height: '100%',
+          border: 0,
 
-        <p>
-          This provider cannot run safely
-          inside the embedded player.
-        </p>
+          /*
+           * Prevent interaction until
+           * the user explicitly activates
+           * the player.
+           */
+          pointerEvents: active
+            ? 'auto'
+            : 'none',
+        }}
+        onLoad={() => {
+          if (active) {
+            focusPlayer();
+          }
+        }}
+      />
 
+      {!active && (
         <button
           type="button"
-          onClick={openPlayer}
+          onClick={
+            activatePlayer
+          }
+          aria-label="Activate video player"
+          style={{
+            position:
+              'absolute',
+
+            inset: 0,
+
+            width: '100%',
+            height: '100%',
+
+            border: 0,
+            padding: 0,
+
+            cursor: 'pointer',
+
+            background:
+              'rgba(0, 0, 0, 0.01)',
+
+            zIndex: 20,
+          }}
         >
-          Open player
+          <span
+            style={{
+              position:
+                'absolute',
+
+              left: '50%',
+              top: '50%',
+
+              transform:
+                'translate(-50%, -50%)',
+
+              padding:
+                '12px 18px',
+
+              borderRadius:
+                '8px',
+
+              background:
+                'rgba(0,0,0,.72)',
+
+              color: '#fff',
+
+              fontSize:
+                '14px',
+
+              pointerEvents:
+                'none',
+            }}
+          >
+            Click to activate
+            player
+          </span>
         </button>
-      </div>
+      )}
     </div>
   );
 }
