@@ -2,18 +2,18 @@
   "name": "@stream/api",
   "private": true,
   "version": "0.1.0",
-  "scripts": {
-    "dev": "nest start --watch",
-   "build": "nest build",
-    "start": "node dist/main.js",
-    "start:worker": "node dist/worker.js",
-    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "db:generate": "node scripts/prisma.cjs generate",
-    "db:deploy": "node scripts/prisma.cjs migrate deploy",
-    "db:migrate": "node scripts/prisma.cjs migrate dev"
-  },
+"scripts": {
+  "dev": "nest start --watch",
+  "build": "npx --package=@nestjs/cli@11.0.10 nest build",
+  "start": "node dist/main.js",
+  "start:worker": "node dist/worker.js",
+  "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
+  "typecheck": "tsc --noEmit",
+  "test": "vitest run",
+  "db:generate": "node scripts/prisma.cjs generate",
+  "db:deploy": "node scripts/prisma.cjs migrate deploy",
+  "db:migrate": "node scripts/prisma.cjs migrate dev"
+},
   "prisma": {
     "seed": "node --experimental-strip-types prisma/seed.ts"
   },
