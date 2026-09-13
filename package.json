@@ -18,7 +18,7 @@
   "db:generate": "npx prisma generate --schema=apps/api/prisma/schema.prisma",
   "db:deploy": "npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma",
   "db:migrate": "npx prisma migrate dev --schema=apps/api/prisma/schema.prisma",
-
+  "db:seed": "npm exec --workspace @stream/api prisma db seed",
   "inspect:media": "node scripts/inspect-media.mjs",
   "production:preflight": "node scripts/production-preflight.cjs"
 },
