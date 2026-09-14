@@ -1,44 +1,16 @@
 'use client';
-
-import { useState } from 'react';
-import { AdminAction } from './admin-action';
-
-const api = process.env.NEXT_PUBLIC_API_URL;
+import { useCallback, useEffect, useState } from 'react';
+import { adminFetch } from '../lib/admin-api';
+type Source = { id: string; name: string; type: string; status: string; epgUrl?: string; syncEpg?: boolean };
 type Mapping = { externalChannelId: string; externalName?: string; channelId?: string };
-
 export function EpgAdmin() {
-  const [sourceId, setSourceId] = useState('');
-  const [url, setUrl] = useState('');
-  const [items, setItems] = useState<Mapping[]>([]);
-  const [message, setMessage] = useState('');
-  const headers = () => ({ authorization: `Bearer ${sessionStorage.getItem('accessToken') ?? ''}`, 'content-type': 'application/json' });
-
-  async function load() {
-    const response = await fetch(`${api}/admin/epg/sources/${sourceId}/mappings`, { headers: headers() });
-    setItems(response.ok ? await response.json() : []);
-  }
-
-  async function run() {
-    const response = await fetch(`${api}/admin/epg/sources/${sourceId}/import`, { method: 'POST', headers: headers(), body: JSON.stringify({ url }) });
-    setMessage(response.ok ? 'Import XMLTV terminé' : (await response.json()).message);
-    await load();
-  }
-
-  async function map(externalId: string, channelId: string) {
-    const response = await fetch(`${api}/admin/epg/sources/${sourceId}/mappings/${encodeURIComponent(externalId)}`, { method: 'PATCH', headers: headers(), body: JSON.stringify({ channelId }) });
-    setMessage(response.ok ? 'Mapping corrigé sans réimport' : (await response.json()).message);
-    await load();
-  }
-
-  return <section className="card commerce">
-    <h2>Import et mappings EPG</h2>
-    <input placeholder="ID source" value={sourceId} onChange={event => setSourceId(event.target.value)}/>
-    <input placeholder="URL XMLTV autorisée" value={url} onChange={event => setUrl(event.target.value)}/>
-    <div className="actions">
-      <AdminAction help="Télécharge la grille XMLTV et met à jour les programmes."><button className="button" onClick={run}>Importer</button></AdminAction>
-      <AdminAction help="Affiche les chaînes à associer ou à corriger."><button className="button secondary" onClick={load}>Charger les mappings</button></AdminAction>
-    </div>
-    {items.map(item => <div className="mapping-row" key={item.externalChannelId}><span>{item.externalName ?? item.externalChannelId} · {item.channelId ?? 'Non associé'}</span><input aria-label="ID chaîne cible" defaultValue={item.channelId ?? ''} onBlur={event => event.target.value && void map(item.externalChannelId, event.target.value)}/></div>)}
-    <p aria-live="polite">{message}</p>
-  </section>;
+  const [sources, setSources] = useState<Source[]>([]); const [sourceId, setSourceId] = useState(''); const [url, setUrl] = useState(''); const [items, setItems] = useState<Mapping[]>([]); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
+  const loadMappings = useCallback(async (id = sourceId) => { if (!id) return; const response = await adminFetch('/admin/epg/sources/' + id + '/mappings'); if (!response.ok) throw new Error('Impossible de charger les correspondances.'); setItems(await response.json()); }, [sourceId]);
+  useEffect(() => { void adminFetch('/admin/epg/sources').then(async (response) => { if (!response.ok) throw new Error('Impossible de charger les sources.'); const rows: Source[] = await response.json(); setSources(rows); const first = rows.find((row) => row.epgUrl || row.syncEpg) ?? rows[0]; if (first) { setSourceId(first.id); setUrl(first.epgUrl ?? ''); } }).catch((error) => setMessage(error instanceof Error ? error.message : 'Chargement impossible.')); }, []);
+  useEffect(() => { if (sourceId) void Promise.resolve().then(() => loadMappings(sourceId)).catch((error) => setMessage(String(error))); }, [sourceId, loadMappings]);
+  function choose(id: string) { setSourceId(id); setUrl(sources.find((row) => row.id === id)?.epgUrl ?? ''); setItems([]); }
+  async function run() { if (!sourceId || !url) return; setBusy(true); setMessage(''); try { const response = await adminFetch('/admin/epg/sources/' + sourceId + '/import', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url }) }); const body = await response.json(); if (!response.ok) throw new Error(Array.isArray(body.message) ? body.message.join(', ') : body.message); setMessage('Guide XMLTV importé. Les correspondances sont à jour.'); await loadMappings(); } catch (error) { setMessage(error instanceof Error ? error.message : 'Import impossible.'); } finally { setBusy(false); } }
+  async function map(externalId: string, channelId: string) { if (!channelId) return; const response = await adminFetch('/admin/epg/sources/' + sourceId + '/mappings/' + encodeURIComponent(externalId), { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ channelId }) }); setMessage(response.ok ? 'Correspondance enregistrée sans réimport.' : 'La correspondance n’a pas pu être enregistrée.'); if (response.ok) await loadMappings(); }
+  if (!sources.length) return <section className="admin-empty"><span className="eyebrow">GUIDE TV</span><h2>Aucune source disponible</h2><p>Ajoutez une source TV/Live avant d’importer un guide XMLTV.</p></section>;
+  return <section className="card epg-workspace"><div className="section-copy"><div><p className="eyebrow">IMPORT XMLTV</p><h2>Guide des programmes</h2><p className="muted">Choisissez une source, vérifiez son URL EPG, puis importez. Aucun identifiant technique à copier.</p></div></div><div className="epg-controls"><label>Source TV<select value={sourceId} onChange={(event) => choose(event.target.value)}>{sources.map((source) => <option value={source.id} key={source.id}>{source.name} · {source.type} · {source.status}</option>)}</select></label><label>URL du guide XMLTV<input type="url" placeholder="https://fournisseur.example/guide.xml" value={url} onChange={(event) => setUrl(event.target.value)}/></label><button className="button" disabled={busy || !url} onClick={() => void run()}>{busy ? 'Import en cours…' : 'Importer le guide'}</button></div><p aria-live="polite" className="platform-status">{message}</p><div className="mapping-list"><div className="section-copy"><div><h3>Correspondances de chaînes</h3><p className="muted">{items.length ? items.length + ' entrée(s) XMLTV' : 'Aucune correspondance à corriger pour cette source.'}</p></div><button className="button secondary" onClick={() => void loadMappings()}>Actualiser</button></div>{items.map((item) => <label className="mapping-row" key={item.externalChannelId}><span><strong>{item.externalName ?? item.externalChannelId}</strong><small>{item.externalChannelId}</small></span><input aria-label={'Chaîne cible pour ' + (item.externalName ?? item.externalChannelId)} placeholder="ID de la chaîne Streamly" defaultValue={item.channelId ?? ''} onBlur={(event) => void map(item.externalChannelId, event.target.value)}/></label>)}</div></section>;
 }

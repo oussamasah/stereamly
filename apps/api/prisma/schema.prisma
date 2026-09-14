@@ -81,6 +81,7 @@ enum SourceStatus {
   EXPIRED
   OFFLINE
   DISABLED
+  ARCHIVED
 }
 
 enum SourceTestOutcome {
@@ -238,6 +239,7 @@ model SourceAccount {
   lastErrorCode        String?
   lastLatencyMs        Int?
   accountExpiresAt     DateTime?
+  archivedAt           DateTime?
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
   owner                User               @relation(fields: [ownerId], references: [id])

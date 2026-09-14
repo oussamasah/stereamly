@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { StreamProviderDto } from './provider.dto';
 
@@ -18,11 +18,13 @@ export class ProvidersService {
   }
 
   create(dto: StreamProviderDto) {
+    this.validate(dto);
     return this.prisma.streamProvider.create({ data: this.clean(dto) });
   }
 
   async update(id: string, dto: StreamProviderDto) {
     await this.ensure(id);
+    this.validate(dto);
     return this.prisma.streamProvider.update({ where: { id }, data: this.clean(dto) });
   }
 
@@ -43,6 +45,21 @@ export class ProvidersService {
       isActive: dto.isActive ?? true,
       rank: dto.rank ?? 0,
     };
+  }
+
+  private validate(dto: StreamProviderDto) {
+    if (dto.category === 'vod' && !dto.movieTemplate && !dto.tvTemplate) {
+      throw new BadRequestException('VOD_TEMPLATE_REQUIRED');
+    }
+    if ((dto.category === 'live' || dto.category === 'sports') && !dto.streamUrl) {
+      throw new BadRequestException('LIVE_TEMPLATE_REQUIRED');
+    }
+    if (dto.movieTemplate && !dto.movieTemplate.includes('{id}')) {
+      throw new BadRequestException('MOVIE_TEMPLATE_ID_REQUIRED');
+    }
+    if (dto.tvTemplate && ['{id}', '{s}', '{e}'].some((token) => !dto.tvTemplate!.includes(token))) {
+      throw new BadRequestException('SERIES_TEMPLATE_VARIABLES_REQUIRED');
+    }
   }
 
   private async ensure(id: string) {

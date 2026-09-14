@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const allowedRoots = new Set(['movie', 'tv', 'search', 'configuration']);
+const allowedRoots = new Set(['movie', 'tv', 'search', 'discover', 'genre', 'configuration']);
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
   const key = process.env.NEXT_PUBLIC_TMDB_API_KEY;
@@ -12,7 +12,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const upstream = new URL(`https://api.themoviedb.org/3/${path.join('/')}`);
   upstream.searchParams.set('api_key', key);
   for (const [name, value] of request.nextUrl.searchParams) {
-    if (['language', 'query', 'page', 'include_adult', 'append_to_response'].includes(name)) upstream.searchParams.set(name, value);
+    if (['language', 'query', 'page', 'include_adult', 'append_to_response', 'region', 'with_origin_country', 'with_genres', 'sort_by'].includes(name)) upstream.searchParams.set(name, value);
   }
   const response = await fetch(upstream, { next: { revalidate: 1800 } });
   const body = await response.text();

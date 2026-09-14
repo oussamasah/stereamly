@@ -114,14 +114,16 @@ export function usePlatform() {
     return useResource<Snapshot>(`${api}/platform/snapshot`, 30_000);
 }
 
-export function tmdb(path: string, locale: string, query = '') {
+export function tmdb(path: string, locale: string, query = '', parameters: Record<string, string> = {}) {
     const key = process.env.NEXT_PUBLIC_TMDB_API_KEY;
     if (!key) return null;
     const url = new URL(`https://api.themoviedb.org/3/${path}`);
     url.searchParams.set('api_key', key);
-    url.searchParams.set('language', locale);
+    const languages: Record<string, string> = { fr: 'fr-FR', en: 'en-US', ar: 'ar-SA' };
+    url.searchParams.set('language', languages[locale] || locale);
     url.searchParams.set('include_adult', 'false');
     if (query) url.searchParams.set('query', query);
+    for (const [name, value] of Object.entries(parameters)) if (value) url.searchParams.set(name, value);
     return url.toString();
 }
 

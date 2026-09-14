@@ -9,6 +9,15 @@ import { removeTitle, saveTitle, useLibrary, useLibraryStatus } from './library'
 
 export type View = 'home' | 'movie' | 'tv' | 'channels' | 'sports' | 'search' | 'library';
 
+const TMDB_AREAS = [
+    { id: 'ALL', fr: 'Tout', en: 'All', ar: 'الكل', countries: [] },
+    { id: 'EUROPE', fr: 'Europe', en: 'Europe', ar: 'أوروبا', countries: [['FR','France'],['DE','Allemagne'],['ES','Espagne'],['IT','Italie'],['GB','Royaume-Uni'],['BE','Belgique'],['CH','Suisse'],['NL','Pays-Bas'],['PT','Portugal'],['SE','Suède'],['NO','Norvège'],['DK','Danemark'],['PL','Pologne'],['GR','Grèce'],['TR','Turquie']] },
+    { id: 'AFRICA', fr: 'Afrique', en: 'Africa', ar: 'أفريقيا', countries: [['TN','Tunisie'],['EG','Égypte'],['MA','Maroc'],['DZ','Algérie'],['ZA','Afrique du Sud'],['NG','Nigeria'],['SN','Sénégal'],['CI','Côte d’Ivoire'],['CM','Cameroun'],['KE','Kenya'],['ET','Éthiopie'],['GH','Ghana']] },
+    { id: 'AMERICAS', fr: 'États-Unis / Amériques', en: 'United States / Americas', ar: 'أمريكا', countries: [['US','États-Unis'],['CA','Canada'],['MX','Mexique'],['BR','Brésil'],['AR','Argentine'],['CO','Colombie'],['CL','Chili']] },
+    { id: 'ASIA', fr: 'Asie', en: 'Asia', ar: 'آسيا', countries: [['IN','Inde'],['JP','Japon'],['KR','Corée du Sud'],['CN','Chine'],['HK','Hong Kong'],['TH','Thaïlande'],['ID','Indonésie'],['MY','Malaisie'],['PH','Philippines'],['SA','Arabie saoudite'],['AE','Émirats arabes unis'],['LB','Liban']] },
+] as const;
+type TmdbGenre = { id: number; name: string };
+
 export function TitleCard({ item, kind, locale }: { item: Title; kind: 'movie' | 'tv'; locale: Locale }) {
     return <Link className="view-card" href={`/${locale}/${kind === 'movie' ? 'movies' : 'series'}/${item.id}`}>
         <div className="view-poster">{item.poster_path ? <img src={`https://image.tmdb.org/t/p/w342${item.poster_path}`} alt="" loading="lazy" /> : <span>▶</span>}</div>
@@ -24,6 +33,10 @@ export function Browse({ locale, view }: { locale: Locale; view: View }) {
     const [query, setQuery] = useState('');
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(1);
+    const [tmdbArea, setTmdbArea] = useState('ALL');
+    const [tmdbCountry, setTmdbCountry] = useState('');
+    const [tmdbGenre, setTmdbGenre] = useState('');
+    const [filtersOpen, setFiltersOpen] = useState(false);
     const [sport, setSport] = useState('');
     const [iptvKind, setIptvKind] = useState<typeof IPTV_CATEGORIES[number]>('sports');
     const snapshot = usePlatform();
@@ -31,7 +44,13 @@ export function Browse({ locale, view }: { locale: Locale; view: View }) {
     const library = useLibrary();
     const kind = view === 'tv' ? 'tv' : 'movie';
     const needsTitles = ['home', 'movie', 'tv', 'search'].includes(view);
-    const base = tmdb(view === 'search' ? 'search/multi' : `${kind}/popular`, locale, search);
+    const area = TMDB_AREAS.find(item => item.id === tmdbArea) ?? TMDB_AREAS[0];
+    const filtered = Boolean(tmdbCountry || tmdbGenre) && view !== 'search';
+    const genres = useResource<{ genres: TmdbGenre[] }>((view === 'movie' || view === 'tv') ? tmdb(`genre/${kind}/list`, locale) : null);
+    const activeFilterCount = Number(tmdbArea !== 'ALL') + Number(Boolean(tmdbCountry)) + Number(Boolean(tmdbGenre));
+    const countryName = area.countries.find(([code]) => code === tmdbCountry)?.[1];
+    const genreName = genres.data?.genres.find(genre => String(genre.id) === tmdbGenre)?.name;
+    const base = tmdb(view === 'search' ? 'search/multi' : filtered ? `discover/${kind}` : `${kind}/popular`, locale, search, filtered ? { with_origin_country: tmdbCountry, with_genres: tmdbGenre, sort_by: 'popularity.desc', ...(kind === 'movie' && tmdbCountry ? { region: tmdbCountry } : {}) } : {});
     const resource = useResource<{ results: Title[]; total_pages: number }>(needsTitles && base && (view !== 'search' || search) ? `${base}&page=${page}` : null);
     const items = (resource.data?.results || []).filter(item => item.media_type !== 'person');
     const heading = view === 'home' ? t.home : view === 'movie' ? t.movie : view === 'tv' ? t.tv : t[view];
@@ -39,6 +58,7 @@ export function Browse({ locale, view }: { locale: Locale; view: View }) {
     return <div className="view-shell">
         {view === 'home' ? <section className="view-hero"><span className="view-eyebrow">STREAMLY · FREE TO EXPLORE</span><h1>{t.headline}</h1><p>{t.intro}</p><div className="view-actions"><Link className="button" href={`/${locale}/movies`}>{t.browse}</Link><Link className="button secondary" href={`/${locale}/sports`}>{t.sports} →</Link></div></section> : <h1>{heading}</h1>}
         {view === 'search' && <form className="view-search" onSubmit={event => { event.preventDefault(); setSearch(query.trim()); setPage(1); }}><input aria-label={t.search} value={query} onChange={event => setQuery(event.target.value)} placeholder={t.search} maxLength={100} /><button className="button">{t.search}</button></form>}
+        {(view === 'movie' || view === 'tv') && <section className={`tmdb-filter-shell ${filtersOpen ? 'open' : ''}`} aria-label={locale === 'fr' ? 'Filtres du catalogue' : locale === 'ar' ? 'فلاتر الكتالوج' : 'Catalogue filters'}><div className="tmdb-filter-bar"><button className="tmdb-filter-toggle" aria-expanded={filtersOpen} aria-controls="tmdb-filter-options" onClick={() => setFiltersOpen(value => !value)}><span className="filter-icon" aria-hidden="true">☷</span><span>{locale === 'fr' ? 'Filtres' : locale === 'ar' ? 'الفلاتر' : 'Filters'}</span>{activeFilterCount > 0 && <b>{activeFilterCount}</b>}<i aria-hidden="true">{filtersOpen ? '−' : '+'}</i></button>{!filtersOpen && activeFilterCount > 0 && <div className="tmdb-active-filters">{tmdbArea !== 'ALL' && <span>{area[locale]}</span>}{countryName && <span>{countryName}</span>}{genreName && <span>{genreName}</span>}<button aria-label={locale === 'fr' ? 'Effacer les filtres' : 'Clear filters'} onClick={() => { setTmdbArea('ALL'); setTmdbCountry(''); setTmdbGenre(''); setPage(1); }}>×</button></div>}</div>{filtersOpen && <div className="tmdb-filter-panel" id="tmdb-filter-options"><div><span className="tmdb-filter-label">{locale === 'fr' ? 'Zone' : locale === 'ar' ? 'المنطقة' : 'Area'}</span><div className="tmdb-region-filter" role="group">{TMDB_AREAS.map(item => <button key={item.id} aria-pressed={tmdbArea === item.id} onClick={() => { setTmdbArea(item.id); setTmdbCountry(item.countries[0]?.[0] ?? ''); setPage(1); }}>{item[locale]}</button>)}</div></div><div className="tmdb-subfilters"><label>{locale === 'fr' ? 'Pays' : locale === 'ar' ? 'البلد' : 'Country'}<select value={tmdbCountry} disabled={!area.countries.length} onChange={event => { setTmdbCountry(event.target.value); setPage(1); }}><option value="">{locale === 'fr' ? 'Tous les pays' : locale === 'ar' ? 'كل البلدان' : 'All countries'}</option>{area.countries.map(([code,name]) => <option value={code} key={code}>{name}</option>)}</select></label><label>{locale === 'fr' ? 'Genre' : locale === 'ar' ? 'النوع' : 'Genre'}<select value={tmdbGenre} onChange={event => { setTmdbGenre(event.target.value); setPage(1); }}><option value="">{locale === 'fr' ? 'Tous les genres' : locale === 'ar' ? 'كل الأنواع' : 'All genres'}</option>{genres.data?.genres.map(genre => <option value={genre.id} key={genre.id}>{genre.name}</option>)}</select></label><div className="tmdb-filter-actions">{activeFilterCount > 0 && <button className="button secondary" onClick={() => { setTmdbArea('ALL'); setTmdbCountry(''); setTmdbGenre(''); setPage(1); }}>{locale === 'fr' ? 'Réinitialiser' : locale === 'ar' ? 'إعادة ضبط' : 'Reset'}</button>}<button className="button" onClick={() => setFiltersOpen(false)}>{locale === 'fr' ? 'Voir les résultats' : locale === 'ar' ? 'عرض النتائج' : 'View results'}</button></div></div></div>}</section>}
 
         {needsTitles && <section><h2>{view === 'home' ? t.movie : ''}</h2>{!base ? <p className="view-empty">{t.metadata}</p> : resource.error ? <div role="alert"><p>{t.error}</p><button onClick={resource.retry}>{t.retry}</button></div> : !resource.data && (view !== 'search' || search) ? <p role="status">{t.loading}</p> : <><div className="view-grid">{items.map(item => <TitleCard key={`${item.media_type || kind}-${item.id}`} item={item} kind={item.media_type === 'tv' ? 'tv' : kind} locale={locale} />)}</div>{items.length === 0 && search && <p className="view-empty">{t.empty}</p>}{view !== 'home' && items.length > 0 && <div className="view-actions"><button disabled={page === 1} onClick={() => setPage(value => value - 1)} aria-label="Previous page">←</button><span>{page}</span><button disabled={page >= (resource.data?.total_pages || 1) || page >= 500} onClick={() => setPage(value => value + 1)} aria-label="Next page">→</button></div>}</>}</section>}
 

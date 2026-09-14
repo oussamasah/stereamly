@@ -10,7 +10,7 @@ const secrets=(dto:SourceAccountDto):SourceCredentials=>({username:dto.username,
 @Injectable()
 export class SourcesService {
  constructor(private readonly prisma:PrismaService,private readonly vault:SourceVaultService,private readonly connectors:SourceConnectorsService,private readonly policy:UrlPolicyService){}
- async list(){const rows=await this.prisma.sourceAccount.findMany({include:{secret:true,testRuns:{orderBy:{createdAt:'desc'},take:1}},orderBy:{updatedAt:'desc'}});return rows.map(row=>this.public(row));}
+ async list(){const rows=await this.prisma.sourceAccount.findMany({where:{status:{not:'ARCHIVED'}},include:{secret:true,testRuns:{orderBy:{createdAt:'desc'},take:1},_count:{select:{catalogItems:true,importJobs:true}}},orderBy:{updatedAt:'desc'}});return rows.map(row=>this.public(row));}
  async get(id:string){const row=await this.prisma.sourceAccount.findUnique({where:{id},include:{secret:true,testRuns:{orderBy:{createdAt:'desc'},take:20},auditEvents:{orderBy:{createdAt:'desc'},take:30,include:{actor:{select:{id:true,displayName:true}}}}}});if(!row)throw new NotFoundException('SOURCE_NOT_FOUND');return this.public(row);}
  async channels(id:string,query:{page:number;pageSize:number;search?:string;group?:string}){
   await this.require(id);
@@ -40,41 +40,33 @@ export class SourcesService {
   const row=await this.prisma.sourceAccount.create({data:{name:cleanName,type:'M3U',baseUrl:'https://uploaded-m3u.invalid/file.m3u',allowedHosts:['uploaded-m3u.invalid',...streamHosts],...options,status:'READY',lastTestedAt:new Date(),lastSuccessAt:new Date(),owner:{connect:{id:actorId}},secret:{create:encrypted},auditEvents:{create:{actorId,action:'M3U_FILE_UPLOADED',changes:{fileSize:Buffer.byteLength(normalized),streamHosts,storage:'ENCRYPTED_DATABASE'}}}},include:{secret:true,testRuns:true}});
   return this.public(row);
  }
- async update(id:string,dto:SourceAccountDto,actorId:string){const current=await this.require(id);await this.validateUrls(dto);const previous=this.vault.decrypt(current.secret!);const supplied=Object.fromEntries(Object.entries(secrets(dto)).filter(([,v])=>v!==undefined&&v!==''));const merged=Object.fromEntries(Object.entries({...previous,...supplied}).filter(([,v])=>v!==undefined&&v!=='')) as SourceCredentials;this.validateCredentials(dto.type,merged);const encrypted=this.vault.encrypt(merged);await this.prisma.$transaction([this.prisma.sourceAccount.update({where:{id},data:{...this.data(dto),status:'DRAFT',enabled:false,lastErrorCode:null,secret:{upsert:{create:encrypted,update:encrypted}}}}),this.prisma.sourceAuditEvent.create({data:{sourceId:id,actorId,action:'SOURCE_UPDATED',changes:this.changes(dto)}})]);return this.get(id);}
+ async update(id:string,dto:SourceAccountDto,actorId:string){const current=await this.require(id);await this.validateUrls(dto);const previous=current.type===dto.type?this.vault.decrypt(current.secret!):{};const supplied=Object.fromEntries(Object.entries(secrets(dto)).filter(([,v])=>v!==undefined&&v!==''));const merged=Object.fromEntries(Object.entries({...previous,...supplied}).filter(([,v])=>v!==undefined&&v!=='')) as SourceCredentials;this.validateCredentials(dto.type,merged);const encrypted=this.vault.encrypt(merged);await this.prisma.$transaction([this.prisma.sourceAccount.update({where:{id},data:{...this.data(dto),status:'DRAFT',enabled:false,lastErrorCode:null,secret:{upsert:{create:encrypted,update:encrypted}}}}),this.prisma.sourceAuditEvent.create({data:{sourceId:id,actorId,action:'SOURCE_UPDATED',changes:{...this.changes(dto),typeChanged:current.type!==dto.type}}})]);return this.get(id);}
  async test(id:string,actorId:string){const source=await this.require(id);await this.prisma.sourceAccount.update({where:{id},data:{status:'TESTING',enabled:false}});let result:ConnectorResult;try{result=await this.connectors.test(source,this.vault.decrypt(source.secret!));}catch{result={outcome:'UNREACHABLE',latencyMs:0,errorCode:'SOURCE_TEST_FAILED',detail:'SOURCE_TEST_FAILED'};}const status=this.status(result.outcome);const now=new Date();await this.prisma.$transaction([this.prisma.sourceTestRun.create({data:{sourceId:id,outcome:result.outcome,latencyMs:result.latencyMs,capabilities:result.capabilities as Prisma.InputJsonValue|undefined,errorCode:result.errorCode,detail:result.detail}}),this.prisma.sourceAccount.update({where:{id},data:{status,lastTestedAt:now,lastSuccessAt:result.outcome==='SUCCESS'?now:undefined,lastErrorCode:result.errorCode??null,lastLatencyMs:result.latencyMs,accountExpiresAt:result.expiresAt,maxConcurrentStreams:result.maxConnections??source.maxConcurrentStreams}}),this.prisma.sourceAuditEvent.create({data:{sourceId:id,actorId,action:'SOURCE_TESTED',changes:{outcome:result.outcome,latencyMs:result.latencyMs,errorCode:result.errorCode??null}}})]);return{...result,status};}
  async enable(id:string,actorId:string){const source=await this.require(id);if(source.status!=='READY'||!source.lastSuccessAt)throw new BadRequestException('SOURCE_SUCCESSFUL_TEST_REQUIRED');const value=await this.prisma.sourceAccount.update({where:{id},data:{enabled:true}});await this.audit(id,actorId,'SOURCE_ENABLED');return this.public({...value,secret:source.secret,testRuns:[]});}
- async disable(id:string,actorId:string){const source=await this.require(id);const value=await this.prisma.sourceAccount.update({where:{id},data:{enabled:false,status:'DISABLED'}});await this.audit(id,actorId,'SOURCE_DISABLED');return this.public({...value,secret:source.secret,testRuns:[]});}
+ async disable(id:string,actorId:string){const source=await this.require(id);const[value]=await this.prisma.$transaction([this.prisma.sourceAccount.update({where:{id},data:{enabled:false,status:'DISABLED'}}),this.prisma.importJob.updateMany({where:{sourceId:id,status:{in:['QUEUED','CONNECTING','DOWNLOADING','PARSING','STAGING','PREVIEW','APPLYING']}},data:{cancelRequested:true}}),this.prisma.sourceAuditEvent.create({data:{sourceId:id,actorId,action:'SOURCE_DISABLED'}})]);return this.public({...value,secret:source.secret,testRuns:[]});}
  async remove(id:string,actorId:string){
   const source=await this.require(id);
-  const links=await this.prisma.sourceCatalogItem.findMany({where:{sourceId:id},select:{channelId:true,mediaTitleId:true,episodeId:true}});
+  const links=await this.prisma.sourceCatalogItem.findMany({where:{sourceId:id,active:true},select:{channelId:true,mediaTitleId:true,episodeId:true}});
   const linkedChannelIds=[...new Set(links.map(link=>link.channelId).filter((value):value is string=>!!value))];
   const linkedMediaTitleIds=[...new Set(links.map(link=>link.mediaTitleId).filter((value):value is string=>!!value))];
   const linkedEpisodeIds=[...new Set(links.map(link=>link.episodeId).filter((value):value is string=>!!value))];
-  // Imported catalogue entities can theoretically be linked to another source.
-  // Only hard-delete entities owned exclusively by the source being removed.
-  const shared=await this.prisma.sourceCatalogItem.findMany({where:{sourceId:{not:id},OR:[{channelId:{in:linkedChannelIds}},{mediaTitleId:{in:linkedMediaTitleIds}},{episodeId:{in:linkedEpisodeIds}}]},select:{channelId:true,mediaTitleId:true,episodeId:true}});
+  const shared=await this.prisma.sourceCatalogItem.findMany({where:{sourceId:{not:id},active:true,OR:[{channelId:{in:linkedChannelIds}},{mediaTitleId:{in:linkedMediaTitleIds}},{episodeId:{in:linkedEpisodeIds}}]},select:{channelId:true,mediaTitleId:true,episodeId:true}});
   const sharedChannels=new Set(shared.map(link=>link.channelId).filter(Boolean));
   const sharedMedia=new Set(shared.map(link=>link.mediaTitleId).filter(Boolean));
   const sharedEpisodes=new Set(shared.map(link=>link.episodeId).filter(Boolean));
   const channelIds=linkedChannelIds.filter(value=>!sharedChannels.has(value));
   const mediaTitleIds=linkedMediaTitleIds.filter(value=>!sharedMedia.has(value));
   const episodeIds=linkedEpisodeIds.filter(value=>!sharedEpisodes.has(value));
-  const categories=channelIds.length?await this.prisma.channel.findMany({where:{id:{in:channelIds}},select:{categoryId:true}}):[];
-  const categoryIds=[...new Set(categories.map(value=>value.categoryId))];
   await this.prisma.$transaction(async tx=>{
-   const variants=await tx.playbackVariant.findMany({where:{OR:[{channelId:{in:channelIds}},{mediaTitleId:{in:mediaTitleIds}},{episodeId:{in:episodeIds}}]},select:{id:true}});
-   const variantIds=variants.map(value=>value.id);
-   if(variantIds.length)await tx.playbackSession.deleteMany({where:{variantId:{in:variantIds}}});
-   if(channelIds.length){await tx.packageChannel.deleteMany({where:{channelId:{in:channelIds}}});await tx.channel.deleteMany({where:{id:{in:channelIds}}});}
-   if(mediaTitleIds.length)await tx.mediaTitle.deleteMany({where:{id:{in:mediaTitleIds}}});
-   if(episodeIds.length)await tx.episode.deleteMany({where:{id:{in:episodeIds}}});
-   await tx.channelAvailability.deleteMany({where:{sourceId:id}});
-   await tx.contentAuditEvent.deleteMany({where:{entityId:{in:[id,...channelIds,...mediaTitleIds,...episodeIds]}}});
-   await tx.sourceAccount.delete({where:{id}});
-   for(const categoryId of categoryIds)if(!await tx.channel.count({where:{categoryId}}))await tx.category.delete({where:{id:categoryId}});
+   await tx.importJob.updateMany({where:{sourceId:id,status:{in:['QUEUED','CONNECTING','DOWNLOADING','PARSING','STAGING','PREVIEW','APPLYING']}},data:{cancelRequested:true}});
+   await tx.sourceCatalogItem.updateMany({where:{sourceId:id},data:{active:false}});
+   if(channelIds.length){await tx.playbackVariant.updateMany({where:{channelId:{in:channelIds}},data:{enabled:false}});await tx.channel.updateMany({where:{id:{in:channelIds}},data:{status:'ARCHIVED',webAvailable:false,archivedAt:new Date()}});}
+   if(mediaTitleIds.length){await tx.playbackVariant.updateMany({where:{mediaTitleId:{in:mediaTitleIds}},data:{enabled:false}});await tx.mediaTitle.updateMany({where:{id:{in:mediaTitleIds}},data:{status:'ARCHIVED',archivedAt:new Date()}});}
+   if(episodeIds.length)await tx.playbackVariant.updateMany({where:{episodeId:{in:episodeIds}},data:{enabled:false}});
+   await tx.sourceAuditEvent.create({data:{sourceId:id,actorId,action:'SOURCE_ARCHIVED',changes:{channelsAffected:channelIds.length,mediaAffected:mediaTitleIds.length,episodesAffected:episodeIds.length,sharedItemsPreserved:shared.length}}});
+   await tx.sourceAccount.update({where:{id},data:{enabled:false,status:'ARCHIVED',archivedAt:new Date()}});
   });
-  void actorId;
-  return{deleted:true,id,name:source.name,channelsDeleted:channelIds.length,mediaDeleted:mediaTitleIds.length,episodesDeleted:episodeIds.length,sharedItemsPreserved:linkedChannelIds.length-channelIds.length+linkedMediaTitleIds.length-mediaTitleIds.length+linkedEpisodeIds.length-episodeIds.length,fileDeleted:source.baseUrl.includes('uploaded-m3u.invalid')};
+  return{archived:true,id,name:source.name,channelsAffected:channelIds.length,mediaAffected:mediaTitleIds.length,episodesAffected:episodeIds.length,sharedItemsPreserved:shared.length};
  }
  private async require(id:string){const value=await this.prisma.sourceAccount.findUnique({where:{id},include:{secret:true}});if(!value||!value.secret)throw new NotFoundException('SOURCE_NOT_FOUND');return value;}
  private data(dto:SourceAccountDto){return{name:dto.name,type:dto.type,baseUrl:this.normalize(dto.baseUrl),regionCode:dto.regionCode,priority:dto.priority??100,syncLive:dto.syncLive??true,syncMovies:dto.syncMovies??true,syncSeries:dto.syncSeries??true,syncEpg:dto.syncEpg??false,userAgent:dto.userAgent,epgUrl:dto.epgUrl?this.normalize(dto.epgUrl):null,refreshIntervalMin:dto.refreshIntervalMin??360,maxConcurrentStreams:dto.maxConcurrentStreams,preferHls:dto.preferHls??true,allowedHosts:dto.allowedHosts.map(v=>v.toLowerCase())};}
@@ -86,5 +78,10 @@ export class SourcesService {
   private healthRank(status:string){return status==='HEALTHY'?0:status==='UNKNOWN'?1:status==='DEGRADED'?2:3;}
  private changes(dto:SourceAccountDto){return{name:dto.name,type:dto.type,baseUrlHost:new URL(dto.baseUrl).host,regionCode:dto.regionCode??null,allowedHosts:dto.allowedHosts,secretFields:Object.keys(secrets(dto)).filter(k=>Boolean(secrets(dto)[k as keyof SourceCredentials]))};}
  private audit(sourceId:string,actorId:string,action:string){return this.prisma.sourceAuditEvent.create({data:{sourceId,actorId,action}});}
- private public(row:{secret?:{ciphertext:string;iv:string;authTag:string;keyVersion:number}|null;[key:string]:unknown}){const{secret,...safe}=row;return{...safe,secretFlags:secret?this.vault.flags(this.vault.decrypt(secret)):this.vault.flags({})};}
+ private public(row:{secret?:{ciphertext:string;iv:string;authTag:string;keyVersion:number}|null;[key:string]:unknown}){
+  const{secret,...safe}=row;
+  if(!secret)return{...safe,secretFlags:this.vault.flags({}),credentialState:'MISSING'};
+  try{return{...safe,secretFlags:this.vault.flags(this.vault.decrypt(secret)),credentialState:'AVAILABLE'};}
+  catch{return{...safe,secretFlags:this.vault.flags({}),credentialState:'UNREADABLE'};}
+ }
 }

@@ -8,6 +8,24 @@ Streamly is a monorepo streaming platform with:
 - `deploy`: production Docker/Caddy support.
 - `scripts`: smoke checks and operational helpers referenced by `package.json`.
 
+## Administration des sources
+
+Le back-office suit un parcours unique et prévisible :
+
+1. **Sources > Films** et **Sources > Séries** gèrent les templates de lecture existants et leurs priorités.
+2. **Sources > TV & Live** réunit les connexions M3U, Xtream, Portal, URL directe et les templates Live.
+3. Une connexion IPTV doit être testée puis activée avant sa synchronisation dans la **Bibliothèque**.
+4. Le catalogue importé reste en brouillon jusqu'à sa publication explicite avec confirmation des droits.
+5. Une même chaîne reconnue chez plusieurs fournisseurs conserve une identité unique et reçoit plusieurs variantes de lecture ordonnées comme sources de secours.
+6. Un contenu disparu est archivé uniquement lorsqu'aucune autre source active ne le fournit.
+7. Une connexion IPTV est archivée, et non détruite, afin de conserver ses tests, imports et événements d'audit.
+
+La migration Prisma doit être appliquée avant le redémarrage de l'API en production :
+
+```powershell
+npm.cmd run db:deploy
+```
+
 ## Local Setup
 
 Prerequisites: Node.js 24, npm and Docker Desktop.

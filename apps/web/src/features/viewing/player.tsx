@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Hls from 'hls.js';
 
 import { Locale } from '../../i18n';
@@ -19,6 +19,7 @@ import {
 
 import { labels } from './labels';
 import { saveTitle, useLibrary } from './library';
+import { SecurePlayer } from '../../components/secure-player';
 
 type StreamProvider = {
   id: string;
@@ -184,7 +185,9 @@ export function Player({
     useResource<StreamProvider[]>(
       parts[0] === 'tmdb'
         ? `${api}/providers?category=vod`
-        : null,
+        : parts[0] === 'channel' || parts[0] === 'event'
+          ? `${api}/providers?category=live`
+          : null,
     );
 
   const [country, setCountry] =
@@ -199,27 +202,14 @@ export function Player({
   const [quickOpen, setQuickOpen] =
     useState(false);
 
-  const direct =
-    publicDirectBindings(target);
+  const [secureUnavailable, setSecureUnavailable] =
+    useState(false);
 
-  const providerBindings =
-    providerTemplateBindings(
-      target,
-      providers.data,
-    );
-
-  const bindings: PlayerBinding[] = [
-    ...available(
-      platform.data,
-      target,
-      country,
-      now,
-    ),
-
-    ...providerBindings,
-
-    ...direct,
-  ];
+  const bindings = useMemo<PlayerBinding[]>(() => [
+    ...available(platform.data, target, country, now),
+    ...providerTemplateBindings(target, providers.data),
+    ...publicDirectBindings(target),
+  ], [country, now, platform.data, providers.data, target]);
 
   const binding =
     bindings.find(
@@ -245,6 +235,19 @@ export function Player({
         target ===
         `channel:${item.id}`,
     );
+
+  const useSecureChannel =
+    parts[0] === 'channel' &&
+    Boolean(channel) &&
+    !secureUnavailable &&
+    !selected;
+
+  const firstFallbackId = bindings[0]?.id;
+
+  const fallBackFromSecure = useCallback(() => {
+    setSecureUnavailable(true);
+    setSelected((current) => current || firstFallbackId || '');
+  }, [firstFallbackId]);
 
   const name =
     event?.title ||
@@ -281,6 +284,13 @@ export function Player({
       Date.parse(event.endsAt) >
         now
     );
+
+  const isPublishedTarget =
+    parts[0] === 'channel'
+      ? Boolean(channel)
+      : parts[0] === 'event'
+        ? Boolean(event)
+        : true;
 
   const needsPlatform =
     ![
@@ -323,6 +333,7 @@ export function Player({
       : '';
 
   useEffect(() => {
+    const timer = window.setTimeout(() => {
     try {
       const preferred =
         window.localStorage.getItem(
@@ -335,9 +346,11 @@ export function Player({
     } catch {
       // Ignore localStorage failures.
     }
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [target]);
 
-  const choose = (
+  const choose = useCallback((
     value: string,
   ) => {
     setSelected(value);
@@ -350,7 +363,7 @@ export function Player({
     } catch {
       // Ignore localStorage failures.
     }
-  };
+  }, [target]);
 
   const playNextSource = useCallback(() => {
     if (
@@ -369,7 +382,7 @@ export function Player({
 
     choose(next.id);
     setAttempt((value) => value + 1);
-  }, [bindingIndex, bindings]);
+  }, [bindingIndex, bindings, choose]);
 
   const playNextEpisode = useCallback(() => {
     if (!nextEpisodeHref) {
@@ -446,21 +459,21 @@ export function Player({
           </label>
         )}
 
-        {bindings.length > 0 && (
+        {isPublishedTarget && (bindings.length > 0 || parts[0] === 'channel') && (
           <label>
             {t.source}
 
             <select
               value={
-                binding?.id || ''
+                useSecureChannel ? '__secure__' : binding?.id || ''
               }
               onChange={(event) =>
-                choose(
-                  event.currentTarget
-                    .value,
-                )
+                event.currentTarget.value === '__secure__'
+                  ? (setSecureUnavailable(false), setSelected(''))
+                  : choose(event.currentTarget.value)
               }
             >
+              {parts[0] === 'channel' && channel && <option value="__secure__">Source IPTV sécurisée</option>}
               {bindings.map(
                 (source) => (
                   <option
@@ -497,11 +510,15 @@ export function Player({
         </div>
       ) : needsPlatform &&
         !platform.data &&
-        direct.length === 0 ? (
+        bindings.length === 0 ? (
         <p role="status">
           {t.loading}
         </p>
-      ) : binding &&
+      ) : !isPublishedTarget ? (
+          <p className="watch-message">{t.unavailable}</p>
+        ) : useSecureChannel ? (
+          <SecurePlayer targetType="CHANNEL" targetId={parts[1]} onUnavailable={fallBackFromSecure} />
+        ) : binding &&
         inWindow ? (
           <Playback
           key={`${binding.id}-${attempt}`}
@@ -627,6 +644,24 @@ function providerTemplateBindings(
     ,
     episode,
   ] = target.split(':');
+
+  if ((source === 'channel' || source === 'event') && providers) {
+    return [...providers]
+      .sort((a, b) => a.rank - b.rank)
+      .flatMap((provider) => {
+        const url = resolveTemplate(provider.streamUrl, type, '1', '1');
+        if (!url) return [];
+        return [{
+          id: `provider-${provider.slug}`,
+          target,
+          label: provider.name,
+          kind: /\.m3u8($|[?#])/i.test(url) ? ('HLS' as const) : ('EMBED' as const),
+          url,
+          countries: ['ALL'],
+          expiresAt: '2999-12-31T23:59:59.000Z',
+        }];
+      });
+  }
 
   if (
     source !== 'tmdb' ||
@@ -895,7 +930,8 @@ function Playback({
   }, [name]);
 
   useEffect(() => {
-    setFailed(false);
+    const timer = window.setTimeout(() => setFailed(false), 0);
+    return () => window.clearTimeout(timer);
   }, [
     binding.id,
     binding.url,
@@ -1143,19 +1179,20 @@ function ProviderEmbed({
 
   onFailure: () => void;
 }) {
-  const [loaded, setLoaded] =
-    useState(false);
+  const loaded = useRef(false);
 
   useEffect(() => {
-    setLoaded(false);
+    loaded.current = false;
     const timer = window.setTimeout(() => {
-      if (!loaded) {
+      if (!loaded.current) {
         onFailure();
       }
     }, 12000);
 
-    return () => window.clearTimeout(timer);
-  }, [loaded, onFailure, url]);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [onFailure, url]);
 
   return (
     <div className="watch-embed">
@@ -1166,7 +1203,7 @@ function ProviderEmbed({
         allowFullScreen
         referrerPolicy="no-referrer"
         tabIndex={0}
-        onLoad={() => setLoaded(true)}
+        onLoad={() => { loaded.current = true; }}
         onError={onFailure}
         style={{
           position:
