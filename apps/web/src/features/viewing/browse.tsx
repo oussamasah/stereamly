@@ -37,6 +37,7 @@ export function Browse({ locale, view }: { locale: Locale; view: View }) {
     const [tmdbCountry, setTmdbCountry] = useState('');
     const [tmdbGenre, setTmdbGenre] = useState('');
     const [filtersOpen, setFiltersOpen] = useState(false);
+    const [catalogMode, setCatalogMode] = useState<'available' | 'discover'>('discover');
     const [sport, setSport] = useState('');
     const [iptvKind, setIptvKind] = useState<typeof IPTV_CATEGORIES[number]>('sports');
     const snapshot = usePlatform();
@@ -52,12 +53,16 @@ export function Browse({ locale, view }: { locale: Locale; view: View }) {
     const genreName = genres.data?.genres.find(genre => String(genre.id) === tmdbGenre)?.name;
     const base = tmdb(view === 'search' ? 'search/multi' : filtered ? `discover/${kind}` : `${kind}/popular`, locale, search, filtered ? { with_origin_country: tmdbCountry, with_genres: tmdbGenre, sort_by: 'popularity.desc', ...(kind === 'movie' && tmdbCountry ? { region: tmdbCountry } : {}) } : {});
     const resource = useResource<{ results: Title[]; total_pages: number }>(needsTitles && base && (view !== 'search' || search) ? `${base}&page=${page}` : null);
-    const items = (resource.data?.results || []).filter(item => item.media_type !== 'person');
+    const discoveredItems = (resource.data?.results || []).filter(item => item.media_type !== 'person');
+    const items = (view === 'movie' || view === 'tv') && catalogMode === 'available'
+        ? discoveredItems.filter(item => snapshot.data?.bindings.some(binding => binding.target === `tmdb:${kind}:${item.id}` || binding.target.startsWith(`tmdb:${kind}:${item.id}:`)))
+        : discoveredItems;
     const heading = view === 'home' ? t.home : view === 'movie' ? t.movie : view === 'tv' ? t.tv : t[view];
 
     return <div className="view-shell">
         {view === 'home' ? <section className="view-hero"><span className="view-eyebrow">STREAMLY · FREE TO EXPLORE</span><h1>{t.headline}</h1><p>{t.intro}</p><div className="view-actions"><Link className="button" href={`/${locale}/movies`}>{t.browse}</Link><Link className="button secondary" href={`/${locale}/sports`}>{t.sports} →</Link></div></section> : <h1>{heading}</h1>}
         {view === 'search' && <form className="view-search" onSubmit={event => { event.preventDefault(); setSearch(query.trim()); setPage(1); }}><input aria-label={t.search} value={query} onChange={event => setQuery(event.target.value)} placeholder={t.search} maxLength={100} /><button className="button">{t.search}</button></form>}
+        {(view === 'movie' || view === 'tv') && <div className="catalog-mode-toggle" role="group" aria-label={locale === 'fr' ? 'Mode du catalogue' : locale === 'ar' ? 'وضع الكتالوج' : 'Catalogue mode'}><button aria-pressed={catalogMode === 'available'} onClick={() => setCatalogMode('available')}><span aria-hidden="true">▶</span>{locale === 'fr' ? 'Disponibles' : locale === 'ar' ? 'متاح للمشاهدة' : 'Available'}</button><button aria-pressed={catalogMode === 'discover'} onClick={() => setCatalogMode('discover')}><span aria-hidden="true">⌕</span>{locale === 'fr' ? 'Découvrir' : locale === 'ar' ? 'اكتشف' : 'Discover'}</button></div>}
         {(view === 'movie' || view === 'tv') && <section className={`tmdb-filter-shell ${filtersOpen ? 'open' : ''}`} aria-label={locale === 'fr' ? 'Filtres du catalogue' : locale === 'ar' ? 'فلاتر الكتالوج' : 'Catalogue filters'}><div className="tmdb-filter-bar"><button className="tmdb-filter-toggle" aria-expanded={filtersOpen} aria-controls="tmdb-filter-options" onClick={() => setFiltersOpen(value => !value)}><span className="filter-icon" aria-hidden="true">☷</span><span>{locale === 'fr' ? 'Filtres' : locale === 'ar' ? 'الفلاتر' : 'Filters'}</span>{activeFilterCount > 0 && <b>{activeFilterCount}</b>}<i aria-hidden="true">{filtersOpen ? '−' : '+'}</i></button>{!filtersOpen && activeFilterCount > 0 && <div className="tmdb-active-filters">{tmdbArea !== 'ALL' && <span>{area[locale]}</span>}{countryName && <span>{countryName}</span>}{genreName && <span>{genreName}</span>}<button aria-label={locale === 'fr' ? 'Effacer les filtres' : 'Clear filters'} onClick={() => { setTmdbArea('ALL'); setTmdbCountry(''); setTmdbGenre(''); setPage(1); }}>×</button></div>}</div>{filtersOpen && <div className="tmdb-filter-panel" id="tmdb-filter-options"><div><span className="tmdb-filter-label">{locale === 'fr' ? 'Zone' : locale === 'ar' ? 'المنطقة' : 'Area'}</span><div className="tmdb-region-filter" role="group">{TMDB_AREAS.map(item => <button key={item.id} aria-pressed={tmdbArea === item.id} onClick={() => { setTmdbArea(item.id); setTmdbCountry(item.countries[0]?.[0] ?? ''); setPage(1); }}>{item[locale]}</button>)}</div></div><div className="tmdb-subfilters"><label>{locale === 'fr' ? 'Pays' : locale === 'ar' ? 'البلد' : 'Country'}<select value={tmdbCountry} disabled={!area.countries.length} onChange={event => { setTmdbCountry(event.target.value); setPage(1); }}><option value="">{locale === 'fr' ? 'Tous les pays' : locale === 'ar' ? 'كل البلدان' : 'All countries'}</option>{area.countries.map(([code,name]) => <option value={code} key={code}>{name}</option>)}</select></label><label>{locale === 'fr' ? 'Genre' : locale === 'ar' ? 'النوع' : 'Genre'}<select value={tmdbGenre} onChange={event => { setTmdbGenre(event.target.value); setPage(1); }}><option value="">{locale === 'fr' ? 'Tous les genres' : locale === 'ar' ? 'كل الأنواع' : 'All genres'}</option>{genres.data?.genres.map(genre => <option value={genre.id} key={genre.id}>{genre.name}</option>)}</select></label><div className="tmdb-filter-actions">{activeFilterCount > 0 && <button className="button secondary" onClick={() => { setTmdbArea('ALL'); setTmdbCountry(''); setTmdbGenre(''); setPage(1); }}>{locale === 'fr' ? 'Réinitialiser' : locale === 'ar' ? 'إعادة ضبط' : 'Reset'}</button>}<button className="button" onClick={() => setFiltersOpen(false)}>{locale === 'fr' ? 'Voir les résultats' : locale === 'ar' ? 'عرض النتائج' : 'View results'}</button></div></div></div>}</section>}
 
         {needsTitles && <section><h2>{view === 'home' ? t.movie : ''}</h2>{!base ? <p className="view-empty">{t.metadata}</p> : resource.error ? <div role="alert"><p>{t.error}</p><button onClick={resource.retry}>{t.retry}</button></div> : !resource.data && (view !== 'search' || search) ? <p role="status">{t.loading}</p> : <><div className="view-grid">{items.map(item => <TitleCard key={`${item.media_type || kind}-${item.id}`} item={item} kind={item.media_type === 'tv' ? 'tv' : kind} locale={locale} />)}</div>{items.length === 0 && search && <p className="view-empty">{t.empty}</p>}{view !== 'home' && items.length > 0 && <div className="view-actions"><button disabled={page === 1} onClick={() => setPage(value => value - 1)} aria-label="Previous page">←</button><span>{page}</span><button disabled={page >= (resource.data?.total_pages || 1) || page >= 500} onClick={() => setPage(value => value + 1)} aria-label="Next page">→</button></div>}</>}</section>}
@@ -90,11 +95,36 @@ function ChannelsSection({ locale, search, snapshot, publicChannels, iptvKind, s
         <h2>{t.channels}</h2>
         <div className="view-actions">{IPTV_CATEGORIES.map(category => <button key={category} aria-pressed={iptvKind === category} onClick={() => setIptvKind(category)}>{category}</button>)}</div>
         {snapshot.error && publicChannels.error ? <div role="alert"><p>{t.error}</p><button onClick={() => { snapshot.retry(); publicChannels.retry(); }}>{t.retry}</button></div> : !snapshot.data && !publicChannels.data ? <p role="status">{t.loading}</p> : <div className="view-grid view-grid-wide">
-            {curated.map(channel => <Link className="view-tile" key={channel.id} href={watchPath(locale, `channel:${channel.id}`)}><span className="view-eyebrow">{channel.countryCode} · {channel.languageCode}</span><h3>{channel.names[locale] || channel.names.en || channel.slug}</h3><span>{t.details} →</span></Link>)}
+            {curated.map(channel => <ChannelCard key={channel.id} channel={channel} locale={locale} externalLogo={matchingPublicLogo(channel.names[locale] || channel.names.en || channel.slug, publicItems)} />)}
             {publicItems.map(channel => <PublicChannelCard key={`${channel.url}-${channel.name}`} channel={channel} locale={locale} />)}
         </div>}
         {curated.length === 0 && publicItems.length === 0 && <p className="view-empty">{t.empty}</p>}
     </section>;
+}
+
+function ChannelCard({ channel, locale, externalLogo }: { channel: import('./data').Channel; locale: Locale; externalLogo?: string }) {
+    const [imageFailed, setImageFailed] = useState(false);
+    const name = channel.names[locale] || channel.names.en || channel.slug;
+    const providerLogo = channel.logoUrl && (channel.logoUrl.startsWith('https://') || channel.logoUrl.startsWith('/')) ? channel.logoUrl : undefined;
+    const logo = externalLogo || providerLogo;
+    return <Link className="view-tile view-channel-tile" href={watchPath(locale, `channel:${channel.id}`)}>
+        <span className="view-eyebrow">{channel.countryCode} · {channel.languageCode}</span>
+        <span className="view-channel-art">
+            {logo && !imageFailed ? <img className="view-channel-logo" src={logo} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setImageFailed(true)} /> : <span className="view-channel-fallback" aria-hidden="true">{name.slice(0, 2).toUpperCase()}</span>}
+        </span>
+        <h3>{name}</h3>
+        <span>{labels[locale].play} →</span>
+    </Link>;
+}
+
+function matchingPublicLogo(name: string, channels: IptvChannel[]) {
+    const key = normalizedChannelName(name);
+    if (key.length < 4) return undefined;
+    return channels.find(channel => channel.logo && normalizedChannelName(channel.name || '') === key)?.logo;
+}
+
+function normalizedChannelName(value: string) {
+    return value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/^(?:[a-z]{2}|all)\s*[|·:-]\s*/i, '').replace(/\b(?:uhd|fhd|hd|sd|4k|8k|2160p|1080p|720p|576p|480p)\b/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
 function PublicChannelCard({ channel, locale }: { channel: IptvChannel; locale: Locale }) {

@@ -25,7 +25,7 @@ export class PlatformService {
             this.prisma.discoveryCollection.findMany({ where: { published: true }, orderBy: { position: 'asc' }, take: 30 }),
         ]);
         const channels = await this.prisma.channel.findMany({ where: { status: 'PUBLISHED', webAvailable: true, rights: { some: { approved: true, webAllowed: true, validFrom: { lte: now }, validUntil: { gt: now } } } },
-            select: { id: true, slug: true, names: true, languageCode: true, countryCode: true, category: { select: { names: true } } }, orderBy: { sortOrder: 'asc' }, take: 5000 });
+            select: { id: true, slug: true, names: true, logoUrl: true, languageCode: true, countryCode: true, category: { select: { names: true } } }, orderBy: { sortOrder: 'asc' }, take: 5000 });
         const allowed = new Set([...channels.map(c => `channel:${c.id}`), ...events.filter(e => e.status === 'LIVE' && e.startsAt <= now && e.endsAt > now).map(e => `event:${e.id}`)]);
         return { version: 1, generatedAt: now.toISOString(), validUntil: new Date(now.getTime() + 60000).toISOString(),
             channels, events: events.map(event => ({ ...event, status: event.status === 'LIVE' && event.endsAt <= now ? 'FINISHED' : event.status })), collections,

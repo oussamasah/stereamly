@@ -17,22 +17,30 @@ export function SecurePlayer({ targetType, targetId, onUnavailable }: { targetTy
     let cleanup: (() => void | Promise<void>) | undefined;
     let heartbeat: ReturnType<typeof setInterval> | undefined;
     let progressTimer: ReturnType<typeof setInterval> | undefined;
+    let recoveryTimer: ReturnType<typeof setTimeout> | undefined;
+    let stallTimer: ReturnType<typeof setTimeout> | undefined;
     let sessionId: string | undefined;
     let cancelled = false;
     const token = sessionStorage.getItem('accessToken') ?? '';
     const authorization = `Bearer ${token}`;
     const deviceId = localStorage.getItem('streamlyDeviceId') ?? crypto.randomUUID();
     localStorage.setItem('streamlyDeviceId', deviceId);
+    const stabilityMode = sourceFailures.current > 0 || prefersStableBuffer();
 
     const fallback = (immediate = false) => {
       if (cancelled || targetType !== 'CHANNEL') return;
       if (!immediate && sourceFailures.current < 3) {
         sourceFailures.current += 1;
-        setStatus('Essai de la source IPTV suivante…');
-        setRetry((value) => value + 1);
+        setFailed(false);
+        setStatus('Reconnexion au direct…');
+        const delay = [1_200, 2_500, 4_500][sourceFailures.current - 1];
+        recoveryTimer = setTimeout(() => {
+          if (!cancelled) setRetry((value) => value + 1);
+        }, delay);
         return;
       }
-      onUnavailable?.();
+      if (onUnavailable) onUnavailable();
+      else { setFailed(true); setStatus('Le direct ne répond pas. Réessayez dans quelques instants.'); }
     };
     const saveProgress = () => {
       const media = video.current;
@@ -72,16 +80,29 @@ export function SecurePlayer({ targetType, targetId, onUnavailable }: { targetTy
         if (cancelled || !video.current) return;
         const media = video.current;
         const url = new URL(value.manifestUrl, new URL(api!).origin).toString();
-        const playing = () => { if (!cancelled) { sourceFailures.current = 0; setStatus(''); setFailed(false); } };
-        const waiting = () => { if (!cancelled) setStatus('Connexion au flux…'); };
+        const playing = () => { if (!cancelled) { if (stallTimer) clearTimeout(stallTimer); sourceFailures.current = 0; setStatus(''); setFailed(false); } };
+        const waiting = () => { if (!cancelled) { setStatus(stabilityMode ? 'Connexion faible · stabilisation du direct…' : 'Reconnexion au direct…'); if (stallTimer) clearTimeout(stallTimer); if (targetType === 'CHANNEL') stallTimer = setTimeout(() => fallback(), stabilityMode ? 30_000 : 15_000); } };
         media.addEventListener('playing', playing);
         media.addEventListener('waiting', waiting);
 
         if (value.streamType === 'mpegts') {
           const mpegts = await import('mpegts.js');
           if (!mpegts.default.isSupported()) throw new Error('MPEGTS_UNSUPPORTED');
-          const created = mpegts.default.createPlayer({ type: 'mpegts', isLive: true, url }, { enableWorker: true, enableStashBuffer: false, liveBufferLatencyChasing: true, liveBufferLatencyMaxLatency: 5, liveBufferLatencyMinRemain: 1 });
-          const onError = () => { if (!cancelled) { setFailed(true); setStatus('Le flux principal ne répond plus. Passage à la source suivante…'); void qoe(value.sessionId, 'error', authorization); fallback(); } };
+          const created = mpegts.default.createPlayer(
+            { type: 'mpegts', isLive: true, url },
+            {
+              enableWorker: true,
+              enableStashBuffer: true,
+              stashInitialSize: stabilityMode ? 1024 * 1024 : 384 * 1024,
+              liveBufferLatencyChasing: true,
+              liveBufferLatencyMaxLatency: stabilityMode ? 25 : 12,
+              liveBufferLatencyMinRemain: stabilityMode ? 8 : 4,
+              autoCleanupSourceBuffer: true,
+              autoCleanupMaxBackwardDuration: 45,
+              autoCleanupMinBackwardDuration: 20,
+            },
+          );
+          const onError = () => { if (!cancelled && !recoveryTimer) { setStatus('Reconnexion au direct…'); void qoe(value.sessionId, 'error', authorization); fallback(); } };
           created.on(mpegts.default.Events.ERROR, onError);
           cleanup = () => { media.removeEventListener('playing', playing); media.removeEventListener('waiting', waiting); created.off(mpegts.default.Events.ERROR, onError); created.pause(); created.unload(); created.detachMediaElement(); created.destroy(); };
           created.attachMediaElement(media);
@@ -97,14 +118,13 @@ export function SecurePlayer({ targetType, targetId, onUnavailable }: { targetTy
             const Hls = (await import('hls.js')).default;
             if (!Hls.isSupported()) throw new Error('HLS_UNSUPPORTED');
             let recoveries = 0;
-            const created = new Hls({ lowLatencyMode: targetType === 'CHANNEL', maxBufferLength: targetType === 'CHANNEL' ? 15 : 30, maxMaxBufferLength: 60, backBufferLength: 20, manifestLoadingTimeOut: 8_000, fragLoadingTimeOut: 10_000, manifestLoadingMaxRetry: 3, fragLoadingMaxRetry: 3, startFragPrefetch: true });
+            const created = new Hls({ lowLatencyMode: false, maxBufferLength: stabilityMode ? 60 : 30, maxMaxBufferLength: stabilityMode ? 120 : 60, backBufferLength: stabilityMode ? 60 : 30, liveSyncDurationCount: stabilityMode ? 6 : 3, liveMaxLatencyDurationCount: stabilityMode ? 20 : 10, manifestLoadingTimeOut: stabilityMode ? 20_000 : 10_000, fragLoadingTimeOut: stabilityMode ? 25_000 : 15_000, manifestLoadingMaxRetry: stabilityMode ? 8 : 5, fragLoadingMaxRetry: stabilityMode ? 10 : 6, startFragPrefetch: true });
             const onError = (_event: string, data: { fatal: boolean; type: string }) => {
               if (!data.fatal) return;
               void qoe(value.sessionId, 'error', authorization);
               if (recoveries++ < 2 && data.type === Hls.ErrorTypes.NETWORK_ERROR) { setStatus('Reconnexion au flux…'); created.startLoad(); return; }
               if (recoveries < 3 && data.type === Hls.ErrorTypes.MEDIA_ERROR) { setStatus('Récupération de la lecture…'); created.recoverMediaError(); return; }
-              setFailed(true);
-              setStatus('Le flux principal ne répond plus. Passage à la source suivante…');
+              setStatus('Reconnexion au direct…');
               fallback();
             };
             created.on(Hls.Events.ERROR, onError);
@@ -125,7 +145,7 @@ export function SecurePlayer({ targetType, targetId, onUnavailable }: { targetTy
           await created.attach(media);
           created.configure({ streaming: { bufferingGoal: 20, rebufferingGoal: 3, bufferBehind: 30, retryParameters: { maxAttempts: 4, baseDelay: 500, backoffFactor: 2, fuzzFactor: 0.2, timeout: 12_000, stallTimeout: 6_000, connectionTimeout: 8_000 } } });
           created.addEventListener('buffering', () => void qoe(value.sessionId, 'buffering', authorization));
-          created.addEventListener('error', () => { if (!cancelled) { setFailed(true); setStatus('Le flux principal ne répond plus. Passage à la source suivante…'); fallback(); } void qoe(value.sessionId, 'error', authorization); });
+          created.addEventListener('error', () => { if (!cancelled && !recoveryTimer) { setStatus(targetType === 'CHANNEL' ? 'Reconnexion au direct…' : 'Le flux principal ne répond plus.'); fallback(); } void qoe(value.sessionId, 'error', authorization); });
           await created.load(url);
           await media.play().catch(() => setStatus('Touchez Lecture pour démarrer.'));
         }
@@ -140,6 +160,8 @@ export function SecurePlayer({ targetType, targetId, onUnavailable }: { targetTy
       cancelled = true;
       if (heartbeat) clearInterval(heartbeat);
       if (progressTimer) clearInterval(progressTimer);
+      if (recoveryTimer) clearTimeout(recoveryTimer);
+      if (stallTimer) clearTimeout(stallTimer);
       saveProgress();
       if (sessionId) void fetch(`${api}/playback/sessions/${sessionId}/end`, { method: 'POST', headers: { authorization, 'content-type': 'application/json' }, body: '{}' }).catch(() => undefined);
       void cleanup?.();
@@ -150,5 +172,6 @@ export function SecurePlayer({ targetType, targetId, onUnavailable }: { targetTy
 }
 
 function resetMedia(media: HTMLVideoElement, playing: () => void, waiting: () => void) { media.removeEventListener('playing', playing); media.removeEventListener('waiting', waiting); media.pause(); media.removeAttribute('src'); media.load(); }
+function prefersStableBuffer() { const connection = (navigator as Navigator & { connection?: { effectiveType?: string; downlink?: number; saveData?: boolean } }).connection; return Boolean(connection && (connection.saveData || connection.effectiveType === 'slow-2g' || connection.effectiveType === '2g' || (typeof connection.downlink === 'number' && connection.downlink < 2.5))); }
 async function qoe(id: string, type: string, authorization: string) { try { await fetch(`${api}/playback/sessions/${id}/qoe`, { method: 'POST', headers: { authorization, 'content-type': 'application/json' }, body: JSON.stringify({ type }) }); } catch { /* Playback continues when telemetry is unavailable. */ } }
 function playbackError(status: number, value?: string | string[]) { const code = Array.isArray(value) ? value[0] : value; if (status === 401) return 'Connectez-vous pour regarder ce contenu.'; if (code === 'CONTENT_NOT_PUBLISHED') return 'Ce contenu n’est pas encore publié.'; if (code === 'CONCURRENT_STREAM_LIMIT_REACHED') return 'Trop de lectures sont actives sur ce compte. Fermez un autre lecteur puis réessayez.'; if (code === 'DEVICE_LIMIT_REACHED') return 'La limite d’appareils de ce compte est atteinte.'; if (code === 'NO_PLAYABLE_VARIANT' || code === 'STREAM_REFERENCE_UNAVAILABLE') return 'Aucun flux lisible n’est associé à ce contenu.'; if (code === 'SUBSCRIPTION_ENTITLEMENT_REQUIRED' || code === 'ACTIVE_SUBSCRIPTION_REQUIRED') return 'Votre offre ne permet pas encore de regarder ce contenu.'; return 'Ce contenu est momentanément indisponible.'; }

@@ -245,8 +245,9 @@ export function Player({
   const firstFallbackId = bindings[0]?.id;
 
   const fallBackFromSecure = useCallback(() => {
+    if (!firstFallbackId) return;
     setSecureUnavailable(true);
-    setSelected((current) => current || firstFallbackId || '');
+    setSelected((current) => current || firstFallbackId);
   }, [firstFallbackId]);
 
   const name =
@@ -537,7 +538,9 @@ export function Player({
         />
       ) : (
         <p className="watch-message">
-          {t.unavailable}
+          {parts[0] === 'channel'
+            ? (locale === 'fr' ? 'Cette chaîne est momentanément indisponible. Réessayez dans quelques instants.' : locale === 'ar' ? 'هذه القناة غير متاحة مؤقتًا. حاول مرة أخرى بعد قليل.' : 'This channel is temporarily unavailable. Try again in a moment.')
+            : t.unavailable}
         </p>
       )}
         <button type="button" className="watch-side-menu-toggle" onClick={() => setQuickOpen(true)} aria-label="Open quick menu">

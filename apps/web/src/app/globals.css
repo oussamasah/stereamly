@@ -4087,6 +4087,130 @@ body {
     background: var(--surface)
 }
 
+.catalog-mode-toggle {
+    width: fit-content;
+    display: grid;
+    grid-template-columns: repeat(2, auto);
+    gap: 3px;
+    margin: 22px 0 12px;
+    padding: 4px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: #111114
+}
+
+.catalog-mode-toggle button {
+    min-height: 42px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 17px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted);
+    font-weight: 750
+}
+
+.catalog-mode-toggle button[aria-pressed=true] {
+    background: #fff;
+    color: #111
+}
+
+.catalog-mode-toggle span {
+    color: var(--accent)
+}
+
+.tmdb-filter-shell {
+    margin: 0 0 30px
+}
+
+.tmdb-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 48px
+}
+
+.tmdb-filter-toggle {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    padding: 0 15px;
+    border: 1px solid var(--line-2);
+    border-radius: 999px;
+    background: var(--surface);
+    color: #fff;
+    font-weight: 750
+}
+
+.tmdb-filter-toggle:hover,
+.tmdb-filter-shell.open .tmdb-filter-toggle {
+    border-color: #66d9c8;
+    background: #163d3a
+}
+
+.tmdb-filter-toggle b {
+    min-width: 21px;
+    height: 21px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--accent);
+    font-size: .7rem
+}
+
+.tmdb-filter-toggle i {
+    margin-inline-start: 3px;
+    color: var(--muted);
+    font-style: normal;
+    font-size: 1.1rem
+}
+
+.filter-icon {
+    color: #66d9c8;
+    transform: rotate(90deg)
+}
+
+.tmdb-active-filters {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto
+}
+
+.tmdb-active-filters span {
+    padding: 7px 10px;
+    border-radius: 999px;
+    background: #ffffff0d;
+    color: var(--muted);
+    font-size: .76rem;
+    white-space: nowrap
+}
+
+.tmdb-active-filters button {
+    width: 30px;
+    flex: none;
+    border: 0;
+    border-radius: 50%;
+    background: #ffffff12;
+    color: #fff
+}
+
+.tmdb-filter-label {
+    display: block;
+    margin-bottom: 10px;
+    color: var(--muted);
+    font-size: .8rem;
+    font-weight: 750
+}
+
+.tmdb-filter-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center
+}
+
 .tmdb-subfilters {
     display: grid;
     grid-template-columns: repeat(2, minmax(180px, 1fr)) auto;
@@ -4361,6 +4485,28 @@ body {
     .tmdb-subfilters {
         grid-template-columns: 1fr
     }
+
+    .catalog-mode-toggle {
+        width: 100%
+    }
+
+    .catalog-mode-toggle button {
+        justify-content: center;
+        padding-inline: 12px
+    }
+
+    .tmdb-filter-bar {
+        align-items: flex-start;
+        flex-direction: column
+    }
+
+    .tmdb-active-filters {
+        width: 100%
+    }
+
+    .tmdb-filter-actions {
+        display: grid
+    }
     .view-header {
         gap: 12px
     }
@@ -4433,6 +4579,40 @@ body {
     padding: 6px;
     border-radius: 8px;
     background: #fff
+}
+
+.view-channel-tile {
+    align-content: start
+}
+
+.view-channel-art {
+    width: 100%;
+    min-height: 92px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    border: 1px solid #ffffff12;
+    border-radius: 10px;
+    background: radial-gradient(circle at 50% 20%, #24425c, #111b29 72%)
+}
+
+.view-channel-art .view-channel-logo {
+    width: min(78%, 150px);
+    height: 76px;
+    background: transparent
+}
+
+.view-channel-fallback {
+    width: 58px;
+    height: 58px;
+    display: grid;
+    place-items: center;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #52e0ca, #188c85);
+    color: #071312;
+    font-size: 1.15rem;
+    font-weight: 900;
+    letter-spacing: .06em
 }
 
 .view-help {

@@ -8,8 +8,8 @@ type Mode = "movie" | "series" | "live";
 type Provider = { id:string; name:string; slug:string; category:"vod"|"live"|"sports"; movieTemplate?:string|null; tvTemplate?:string|null; streamUrl?:string|null; isActive:boolean; rank:number };
 type Preview = { url:string; hls:boolean; label:string };
 const copy = {
-  movie:{ title:"Sources Films", description:"Construisez l’adresse de lecture depuis l’identifiant du film.", token:"{id}", placeholder:"https://example.com/movie/{id}", test:"ID TMDB", value:"550" },
-  series:{ title:"Sources Séries", description:"Construisez l’adresse de chaque épisode avec l’ID, la saison et l’épisode.", token:"{id}, {s} et {e}", placeholder:"https://example.com/tv/{id}/{s}/{e}", test:"ID TMDB", value:"1399" },
+  movie:{ title:"Sources Films", description:"Construisez l’adresse de lecture depuis l’identifiant du film.", token:"{id}", placeholder:"https://example.com/movie/{id}", test:"ID du film", value:"550" },
+  series:{ title:"Sources Séries", description:"Construisez l’adresse de chaque épisode avec l’ID, la saison et l’épisode.", token:"{id}, {s} et {e}", placeholder:"https://example.com/tv/{id}/{s}/{e}", test:"ID de la série", value:"1399" },
   live:{ title:"Templates Live", description:"Modèles d’URL ou flux directs utilisés pour la lecture et le secours.", token:"une URL HTTP(S), avec {id} si nécessaire", placeholder:"https://example.com/live/{id}.m3u8", test:"ID de chaîne", value:"channel-1" },
 } satisfies Record<Mode,{title:string;description:string;token:string;placeholder:string;test:string;value:string}>;
 const presets:Record<Mode,{name:string;slug:string;template:string}[]> = {
